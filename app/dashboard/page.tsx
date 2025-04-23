@@ -19,6 +19,7 @@ export default function DashboardPage() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [points, setPoints] = useState(0);
   const [totalClicks, setTotalClicks] = useState(0);
+
   const [origin, setOrigin] = useState('');
 
   const [username, setUsername] = useState('');
@@ -52,19 +53,19 @@ export default function DashboardPage() {
       fetchPoints();
       fetchTotalClicks();
     }
-    
     // Set the origin for client-side only
     if (typeof window !== 'undefined') {
       setOrigin(window.location.origin);
     }
   }, [user]);
 
+  // Always fetch links when switching tabs
   useEffect(() => {
-    if (user && activeTab) {
+    if (user) {
       fetchLinks();
     }
     // eslint-disable-next-line
-  }, [user, activeTab]);
+  }, [activeTab]);
 
   // Extract domain from URL
   const extractDomain = (url: string): string => {
@@ -83,17 +84,15 @@ export default function DashboardPage() {
     setAvailableDomains(uniqueDomains);
   };
 
-  // Apply filters to links
+  // Apply domain filter and sorting to links (no deleted filter here)
   const [filteredLinks, setFilteredLinks] = useState<any[]>([]);
   useEffect(() => {
     if (links.length > 0) {
       let result = [...links];
-      
       // Apply domain filter if not 'all'
       if (domainFilter !== 'all') {
         result = result.filter(link => extractDomain(link.original_url) === domainFilter);
       }
-      
       // Apply sorting
       if (sortBy === 'date') {
         result.sort((a, b) => {
@@ -108,7 +107,6 @@ export default function DashboardPage() {
           return sortDirection === 'desc' ? clicksB - clicksA : clicksA - clicksB;
         });
       }
-      
       setFilteredLinks(result);
     } else {
       setFilteredLinks([]);
@@ -175,6 +173,7 @@ export default function DashboardPage() {
     }
   };
 
+  // Fetch the user's points
   const fetchPoints = async () => {
     const { data, error } = await supabase
       .from('profiles')
@@ -239,7 +238,7 @@ export default function DashboardPage() {
         deleted: false
       };
       
-      // Insert the link with placeholder metadata
+      // Insert the link with placeholder metadata (DO NOT insert anything into link_clicks here)
       const { data: newLink, error: insertError } = await supabase
         .from('links')
         .insert(initialPayload)
@@ -368,6 +367,27 @@ export default function DashboardPage() {
     }
   };
 
+  // Subscribe to link_clicks inserts and update click counts in real time
+  useEffect(() => {
+    const clickChannel = supabase
+      .channel('public:link_clicks')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'link_clicks' }, payload => {
+        const newClick = payload.new;
+        setLinks(prev =>
+          prev.map(link =>
+            link.id === newClick.link_id
+              ? { ...link, click_count: (link.click_count || 0) + 1 }
+              : link
+          )
+        );
+      })
+      .subscribe();
+
+    return () => {
+      clickChannel.unsubscribe();
+    };
+  }, []);
+
   return (
     <div className="dashboard-container max-w-5xl mx-auto py-6 sm:py-8 px-4 sm:px-8">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:bg-gray-800 dark:border-gray-700">
@@ -377,13 +397,6 @@ export default function DashboardPage() {
           <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">Manage your shortened links and track performance</p>
         </div>
         <div className="flex gap-3">
-          <button
-            className="btn-secondary"
-            onClick={() => fetchLinks()}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-1 inline-block"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
-            Refresh
-          </button>
           <button
             className="btn-accent"
             onClick={() => setProfileOpen(true)}
@@ -453,7 +466,7 @@ export default function DashboardPage() {
               </div>
               <div className="border-b pb-3">
                 <div className="text-sm text-gray-600 dark:text-gray-400">Qubits</div>
-                <div className="font-medium">{totalClicks}</div>
+                <div className="font-medium">{points}</div>
               </div>
               <div className="border-b pb-3">
                 <div className="text-sm text-gray-600 dark:text-gray-400">Theme</div>
@@ -473,7 +486,7 @@ export default function DashboardPage() {
                       </svg>
                     ) : (
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-indigo-600">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A7.488 7.488 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
                       </svg>
                     )}
                   </button>
@@ -516,7 +529,16 @@ export default function DashboardPage() {
         </form>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700 relative">
+        {/* Refresh Button Top Right */}
+        <button
+          className="btn-secondary absolute top-4 right-4 z-10 px-4 py-2 mb-4"
+          onClick={() => fetchLinks()}
+          aria-label="Refresh links"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-1 inline-block"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+          Refresh
+        </button>
         {/* Tab Navigation */}
         <div className="flex border-b mb-4">
           <button
@@ -532,7 +554,6 @@ export default function DashboardPage() {
             Archived Links
           </button>
         </div>
-        
         {/* Filter Controls */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
@@ -564,16 +585,16 @@ export default function DashboardPage() {
                     setSortDirection('desc');
                   }
                 }}
-                className={`text-sm px-3 py-1 rounded flex items-center gap-1 ${sortBy === 'date' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900 dark:text-orange-200' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}
+                className={`text-sm px-3 py-1 rounded flex items-center ${sortBy === 'date' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900 dark:text-orange-200' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}
                 aria-label={`Sort by date ${sortDirection === 'asc' ? 'oldest first' : 'newest first'}`}
               >
                 Date
                 {sortBy === 'date' && (
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
                     {sortDirection === 'asc' ? (
-                      <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75 7.5 12.75 4.5 9.75" />
                     ) : (
-                      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25-2.25 12.75 19.5 17.25" />
                     )}
                   </svg>
                 )}
@@ -587,16 +608,16 @@ export default function DashboardPage() {
                     setSortDirection('desc');
                   }
                 }}
-                className={`text-sm px-3 py-1 rounded flex items-center gap-1 ${sortBy === 'clicks' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900 dark:text-orange-200' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}
+                className={`text-sm px-3 py-1 rounded flex items-center ${sortBy === 'clicks' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900 dark:text-orange-200' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}
                 aria-label={`Sort by clicks ${sortDirection === 'asc' ? 'lowest first' : 'highest first'}`}
               >
                 Clicks
                 {sortBy === 'clicks' && (
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
                     {sortDirection === 'asc' ? (
-                      <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75 7.5 12.75 4.5 9.75" />
                     ) : (
-                      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25-2.25 12.75 19.5 17.25" />
                     )}
                   </svg>
                 )}
@@ -792,7 +813,7 @@ export default function DashboardPage() {
                           aria-label="Archive link"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9-.346 9m4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                           </svg>
                           Archive
                         </button>

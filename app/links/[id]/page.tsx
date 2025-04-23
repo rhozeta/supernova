@@ -230,6 +230,25 @@ export default function LinkDetailsPage() {
       </div>
       
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700 mb-6">
+        {/* Metadata Preview */}
+        <div className="flex flex-col sm:flex-row items-center mb-6">
+          {link.page_image && (
+            <img
+              src={link.page_image}
+              alt={link.page_title || link.short_code}
+              className="w-full sm:w-48 h-32 object-cover rounded-lg sm:mr-6 mb-4 sm:mb-0"
+            />
+          )}
+          <div className="flex-1">
+            {link.page_favicon && (
+              <img src={link.page_favicon} alt={`${link.page_title || link.short_code} favicon`} className="w-6 h-6 inline-block mr-2" />
+            )}
+            <h2 className="text-2xl font-semibold inline-block">{link.page_title || link.short_code}</h2>
+            {link.page_description && (
+              <p className="mt-2 text-gray-600 dark:text-gray-400">{link.page_description}</p>
+            )}
+          </div>
+        </div>
         <h1 className="text-2xl font-bold mb-2">{link.short_code}</h1>
         <div className="mb-4">
           <div className="text-sm text-gray-500 dark:text-gray-400">Original URL</div>
@@ -248,7 +267,7 @@ export default function LinkDetailsPage() {
             <div className="stat-label">Total Clicks</div>
           </div>
           <div className="stat-card p-4">
-            <div className="stat-number">{format(parseISO(link.created_at), 'MMM d, yyyy')}</div>
+            <div className="stat-number whitespace-nowrap">{format(parseISO(link.created_at), 'MMM d, yyyy')}</div>
             <div className="stat-label">Created</div>
           </div>
         </div>
