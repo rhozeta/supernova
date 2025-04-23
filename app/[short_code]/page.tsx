@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 
 export default async function ShortCodeRedirectPage({ params }: { params: { short_code: string } }) {
-  const { short_code } = params;
+  const short_code = params.short_code;
   // Fetch the link data
   const { data, error } = await supabase
     .from('links')
