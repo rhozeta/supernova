@@ -2,7 +2,8 @@ import { redirect } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 import { trackLinkClick } from '../../lib/trackLinkClick';
 
-interface ShortCodePageProps {
+// Use the correct type for Next.js App Router pages
+type ShortCodePageProps = {
   params: {
     short_code: string;
   };
