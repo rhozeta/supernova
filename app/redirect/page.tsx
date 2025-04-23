@@ -22,6 +22,12 @@ export default async function RedirectPage({ params }: RedirectPageProps) {
     redirect('/');
   }
   
+  // Check if link is deleted
+  if (link.deleted === true) {
+    // Redirect to login page if link is deleted
+    redirect('/login');
+  }
+  
   // Increment click count
   await supabase
     .from('links')
