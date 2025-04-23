@@ -2,13 +2,13 @@ import { redirect } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 
 interface RedirectPageProps {
-  params: {
+  params: Promise<{
     shortcode: string;
-  };
+  }>;
 }
 
 export default async function RedirectPage({ params }: RedirectPageProps) {
-  const { shortcode } = params;
+  const { shortcode } = await params;
   
   // Find link by shortcode
   const { data: link, error } = await supabase
