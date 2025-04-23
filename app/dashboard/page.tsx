@@ -3,11 +3,14 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import { redirect } from 'next/navigation';
+import { useThemeManager } from '../../lib/useTheme';
+import { fetchMetadata } from '../../lib/fetchMetadata';
 
 export default function DashboardPage() {
   const [links, setLinks] = useState<any[]>([]);
   const [allLinks, setAllLinks] = useState<any[]>([]);
   const [sortBy, setSortBy] = useState<'date' | 'clicks'>('date');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -17,6 +20,8 @@ export default function DashboardPage() {
   const [totalClicks, setTotalClicks] = useState(0);
   const [username, setUsername] = useState('');
   const [activeTab, setActiveTab] = useState<'active' | 'deleted'>('active');
+  const [domainFilter, setDomainFilter] = useState<string>('all');
+  const [availableDomains, setAvailableDomains] = useState<string[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -34,42 +39,8 @@ export default function DashboardPage() {
     router.push('/login');
   };
 
-  // State for theme toggle
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
-
-  // Apply theme when it changes
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      if (theme === 'dark') {
-        document.documentElement.classList.add('dark');
-        document.documentElement.classList.remove('light');
-      } else {
-        document.documentElement.classList.add('light');
-        document.documentElement.classList.remove('dark');
-      }
-      localStorage.setItem('theme', theme);
-    }
-  }, [theme]);
-
-  // Initialize theme from localStorage or system preference
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      // Check localStorage first
-      const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
-      if (savedTheme) {
-        setTheme(savedTheme);
-      } else {
-        // If no saved preference, check system preference
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        setTheme(prefersDark ? 'dark' : 'light');
-      }
-    }
-  }, []);
-
-  // Toggle theme function
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light');
-  };
+  // Get theme from our custom hook
+  const { theme, toggleTheme } = useThemeManager();
 
   useEffect(() => {
     if (user) {
@@ -81,6 +52,55 @@ export default function DashboardPage() {
     // eslint-disable-next-line
   }, [user, activeTab]);
 
+  // Extract domain from URL
+  const extractDomain = (url: string): string => {
+    try {
+      const urlObj = new URL(url);
+      return urlObj.hostname;
+    } catch (e) {
+      return 'unknown';
+    }
+  };
+
+  // Update available domains for filtering
+  const updateAvailableDomains = (links: any[]) => {
+    const domains = links.map(link => extractDomain(link.original_url));
+    const uniqueDomains = ['all', ...new Set(domains)];
+    setAvailableDomains(uniqueDomains);
+  };
+
+  // Apply filters to links
+  const [filteredLinks, setFilteredLinks] = useState<any[]>([]);
+  useEffect(() => {
+    if (links.length > 0) {
+      let result = [...links];
+      
+      // Apply domain filter if not 'all'
+      if (domainFilter !== 'all') {
+        result = result.filter(link => extractDomain(link.original_url) === domainFilter);
+      }
+      
+      // Apply sorting
+      if (sortBy === 'date') {
+        result.sort((a, b) => {
+          const dateA = new Date(a.created_at).getTime();
+          const dateB = new Date(b.created_at).getTime();
+          return sortDirection === 'desc' ? dateB - dateA : dateA - dateB;
+        });
+      } else if (sortBy === 'clicks') {
+        result.sort((a, b) => {
+          const clicksA = a.click_count || 0;
+          const clicksB = b.click_count || 0;
+          return sortDirection === 'desc' ? clicksB - clicksA : clicksA - clicksB;
+        });
+      }
+      
+      setFilteredLinks(result);
+    } else {
+      setFilteredLinks([]);
+    }
+  }, [links, domainFilter, sortBy, sortDirection]);
+
   const fetchLinks = async () => {
     // First, fetch all links for stats
     const { data: allData, error: allError } = await supabase
@@ -89,7 +109,10 @@ export default function DashboardPage() {
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
     
-    if (!allError) setAllLinks(allData || []);
+    if (!allError) {
+      setAllLinks(allData || []);
+      updateAvailableDomains(allData || []);
+    }
     
     // Then, fetch filtered links for display based on active tab
     let query = supabase
@@ -150,30 +173,90 @@ export default function DashboardPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // Generate a short code
-    const short_code = Math.random().toString(36).substring(2, 8);
-    console.log('Current user:', user);
-    if (!user?.id) {
-      alert('User ID is missing. Cannot create link.');
-      setLoading(false);
-      return;
-    }
-    const payload = {
-      user_id: user.id,
-      original_url: url,
-      short_code,
-      deleted: false,
-    };
-    console.log('Attempting to insert:', payload);
-    const { error } = await supabase.from('links').insert(payload);
-    setLoading(false);
-    if (error) {
-      console.error('Insert error:', error);
-      alert('Failed to create link: ' + error.message);
-    } else {
-      console.log('Link created successfully!');
+    
+    try {
+      // Generate a short code
+      const short_code = Math.random().toString(36).substring(2, 8);
+      
+      if (!user?.id) {
+        alert('User ID is missing. Cannot create link.');
+        setLoading(false);
+        return;
+      }
+      
+      // Initial payload without metadata fields
+      const initialPayload = {
+        user_id: user.id,
+        original_url: url,
+        short_code,
+        deleted: false
+      };
+      
+      // Insert the link with placeholder metadata
+      const { data: newLink, error: insertError } = await supabase
+        .from('links')
+        .insert(initialPayload)
+        .select()
+        .single();
+      
+      if (insertError) {
+        console.error('Insert error:', insertError);
+        alert('Failed to create link: ' + insertError.message);
+        setLoading(false);
+        return;
+      }
+      
+      console.log('Link created successfully, fetching metadata...');
+      
+      // Fetch metadata in the background
+      fetchMetadata(url).then(async (metadata) => {
+        console.log('Metadata fetched:', metadata);
+        
+        try {
+          // First check if the metadata columns exist
+          const { data: columnsData, error: columnsError } = await supabase
+            .from('links')
+            .select('page_title')
+            .limit(1);
+          
+          // If we can query the page_title column, it exists
+          if (!columnsError) {
+            // Update the link with the fetched metadata
+            const { error: updateError } = await supabase
+              .from('links')
+              .update({
+                page_title: metadata.title || url,
+                page_description: metadata.description || '',
+                page_image: metadata.image || '',
+                page_favicon: metadata.favicon || ''
+              })
+              .eq('id', newLink.id);
+            
+            if (updateError) {
+              console.error('Metadata update error:', updateError);
+            } else {
+              console.log('Metadata updated successfully');
+              // Refresh links to show updated metadata
+              fetchLinks();
+            }
+          } else {
+            console.log('Metadata columns do not exist yet. Skipping metadata update.');
+          }
+        } catch (err) {
+          console.error('Error checking or updating metadata:', err);
+        }
+      }).catch(metadataError => {
+        console.error('Error fetching metadata:', metadataError);
+      });
+      
+      // Clear input and refresh links
       setUrl('');
       fetchLinks();
+    } catch (err) {
+      console.error('Unexpected error creating link:', err);
+      alert('An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
   
@@ -212,8 +295,8 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="dashboard-container max-w-5xl mx-auto py-8 px-4 sm:px-8">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 bg-white p-6 rounded-xl shadow-sm border border-gray-100 dark:bg-gray-800 dark:border-gray-700">
+    <div className="dashboard-container max-w-5xl mx-auto py-6 sm:py-8 px-4 sm:px-8">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:bg-gray-800 dark:border-gray-700">
         <div>
           <div className="text-sm text-gray-500 mb-1 dark:text-gray-400">WELCOME BACK</div>
           <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Dashboard</h1>
@@ -238,7 +321,7 @@ export default function DashboardPage() {
       </div>
       
       {/* Stats Section */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 sm:mb-8">
         <div className="stat-card">
           <div className="stat-number">{allLinks.filter(l => !l.deleted).length}</div>
           <div className="stat-label">Active Links</div>
@@ -265,10 +348,10 @@ export default function DashboardPage() {
       </div>
       {/* Profile Modal */}
       {profileOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm" onClick={() => setProfileOpen(false)}>
-          <div className="modal-glass min-w-[320px] relative" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold">Profile Details</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4" onClick={() => setProfileOpen(false)}>
+          <div className="modal-glass w-full max-w-md relative" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4 sm:mb-6">
+              <h2 className="text-xl sm:text-2xl font-bold">Profile Details</h2>
               <button 
                 onClick={() => setProfileOpen(false)}
                 className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -359,52 +442,144 @@ export default function DashboardPage() {
         </form>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-        {/* Tab Menu */}
-        <div className="flex mb-6 border-b border-gray-200 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700">
+        {/* Tab Navigation */}
+        <div className="flex border-b mb-4">
           <button
-            className={`tab-button ${activeTab === 'active' ? 'active' : ''}`}
+            className={`py-2 px-4 font-medium ${activeTab === 'active' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500 hover:text-gray-700'}`}
             onClick={() => setActiveTab('active')}
           >
-            Active
+            Active Links
           </button>
           <button
-            className={`tab-button ${activeTab === 'deleted' ? 'active' : ''}`}
+            className={`py-2 px-4 font-medium ${activeTab === 'deleted' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500 hover:text-gray-700'}`}
             onClick={() => setActiveTab('deleted')}
           >
-            Deleted
+            Deleted Links
           </button>
         </div>
         
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-gray-800 dark:text-white">
-            {activeTab === 'active' ? 'Your Links' : 'Deleted Links'}
-          </h2>
-          <div className="flex items-center gap-3">
+        {/* Filter Controls */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+            <label htmlFor="domainFilter" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Filter by domain:
+            </label>
             <select
-              className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 dark:bg-gray-700 text-sm font-medium"
-              value={sortBy}
-              onChange={e => setSortBy(e.target.value as 'date' | 'clicks')}
+              id="domainFilter"
+              value={domainFilter}
+              onChange={(e) => setDomainFilter(e.target.value)}
+              className="rounded-lg border border-gray-200 px-3 py-2 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white w-full sm:w-auto"
             >
-              <option value="date">Sort by Date</option>
-              <option value="clicks">Sort by Clicks</option>
+              {availableDomains.map((domain) => (
+                <option key={domain} value={domain}>
+                  {domain === 'all' ? 'All Domains' : domain}
+                </option>
+              ))}
             </select>
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Sort by:</span>
+            <div className="flex items-center gap-1">
+              <button 
+                onClick={() => {
+                  if (sortBy === 'date') {
+                    setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                  } else {
+                    setSortBy('date');
+                    setSortDirection('desc');
+                  }
+                }}
+                className={`text-sm px-3 py-1 rounded flex items-center gap-1 ${sortBy === 'date' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900 dark:text-orange-200' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}
+                aria-label={`Sort by date ${sortDirection === 'asc' ? 'oldest first' : 'newest first'}`}
+              >
+                Date
+                {sortBy === 'date' && (
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
+                    {sortDirection === 'asc' ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    )}
+                  </svg>
+                )}
+              </button>
+              <button 
+                onClick={() => {
+                  if (sortBy === 'clicks') {
+                    setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                  } else {
+                    setSortBy('clicks');
+                    setSortDirection('desc');
+                  }
+                }}
+                className={`text-sm px-3 py-1 rounded flex items-center gap-1 ${sortBy === 'clicks' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900 dark:text-orange-200' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}
+                aria-label={`Sort by clicks ${sortDirection === 'asc' ? 'lowest first' : 'highest first'}`}
+              >
+                Clicks
+                {sortBy === 'clicks' && (
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
+                    {sortDirection === 'asc' ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    )}
+                  </svg>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
+        
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
+          <h2 className="text-xl font-bold">{activeTab === 'active' ? 'Your Links' : 'Deleted Links'}</h2>
+        </div>
+        
         <div className="space-y-4">
-          {[...links].sort((a, b) => {
-            if (sortBy === 'date') {
-              return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-            } else {
-              return (b.click_count || 0) - (a.click_count || 0);
-            }
-          }).map(link => {
-            const shortUrl = `${window.location.origin}/${link.short_code}`;
-            return (
-              <div key={link.id} className="p-4 border border-gray-100 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900 relative">
+          {filteredLinks.length === 0 ? (
+            <div className="text-center py-8">
+              <div className="text-gray-500 dark:text-gray-400">No links found</div>
+              {activeTab === 'deleted' && (
+                <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                  Links you delete will appear here
+                </div>
+              )}
+              {domainFilter !== 'all' && (
+                <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                  Try changing your domain filter
+                </div>
+              )}
+            </div>
+          ) : (
+            filteredLinks.map(link => (
+              <div key={link.id} className="p-3 sm:p-4 border border-gray-100 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900 relative hover:shadow-md transition-shadow">
                 {/* Activity Icon */}
-                <div className="absolute left-4 top-4 flex-shrink-0 w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-orange-500">
+                <div className="absolute left-3 sm:left-4 top-3 sm:top-4 flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-orange-100 flex items-center justify-center">
+                  {link.page_favicon && typeof link.page_favicon === 'string' ? (
+                    <img 
+                      src={link.page_favicon} 
+                      alt="Favicon" 
+                      className="w-4 h-4 rounded-full" 
+                      onError={(e) => {
+                        // If favicon fails to load, show default icon
+                        const img = e.currentTarget as HTMLImageElement;
+                        img.style.display = 'none';
+                        const nextElement = img.nextElementSibling as HTMLElement;
+                        if (nextElement) {
+                          nextElement.style.display = 'block';
+                        }
+                      }}
+                    />
+                  ) : null}
+                  <svg 
+                    xmlns="http://www.w3.org/2000/svg" 
+                    fill="none" 
+                    viewBox="0 0 24 24" 
+                    strokeWidth={1.5} 
+                    stroke="currentColor" 
+                    className="w-4 h-4 text-orange-500"
+                    style={{ display: (link.page_favicon && typeof link.page_favicon === 'string') ? 'none' : 'block' }}
+                  >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
                   </svg>
                 </div>
@@ -412,14 +587,16 @@ export default function DashboardPage() {
                 <div className="pl-12">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h3 className="font-medium text-gray-800 dark:text-white">{link.short_code}</h3>
+                      <h3 className="font-medium text-gray-800 dark:text-white">
+                        {link.page_title && typeof link.page_title === 'string' && link.page_title !== 'Loading...' ? link.page_title : link.short_code}
+                      </h3>
                       <a 
-                        href={shortUrl} 
+                        href={`${window.location.origin}/${link.short_code}`} 
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="text-sm text-orange-500 hover:text-orange-600"
                       >
-                        {shortUrl}
+                        {window.location.origin}/{link.short_code}
                       </a>
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -427,7 +604,31 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   
-                  <div className="mt-3 text-sm text-gray-600 dark:text-gray-300 break-all">
+                  {/* Preview Image */}
+                  {link.page_image && typeof link.page_image === 'string' && link.page_image.trim() !== '' && (
+                    <div className="mt-3 rounded-lg overflow-hidden" style={{ maxHeight: '150px' }}>
+                      <img 
+                        src={link.page_image} 
+                        alt="Preview" 
+                        className="w-full h-auto object-cover" 
+                        style={{ maxHeight: '150px' }}
+                        onError={(e) => {
+                          // Hide image if it fails to load
+                          const img = e.currentTarget as HTMLImageElement;
+                          img.style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  )}
+                  
+                  {/* Description */}
+                  {link.page_description && typeof link.page_description === 'string' && link.page_description.trim() !== '' && (
+                    <div className="mt-2 text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
+                      {link.page_description}
+                    </div>
+                  )}
+                  
+                  <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 break-all">
                     {link.original_url}
                   </div>
                   
@@ -458,7 +659,7 @@ export default function DashboardPage() {
                           aria-label="Restore link"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
                           </svg>
                           Restore
                         </button>
@@ -469,7 +670,7 @@ export default function DashboardPage() {
                       className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition"
                       title="Copy link"
                       onClick={async () => {
-                        await navigator.clipboard.writeText(shortUrl);
+                        await navigator.clipboard.writeText(`${window.location.origin}/${link.short_code}`);
                         setCopiedLinkId(link.id);
                         setTimeout(() => setCopiedLinkId(null), 1200);
                       }}
@@ -484,16 +685,19 @@ export default function DashboardPage() {
                         </span>
                       )}
                     </button>
+                    <button
+                      onClick={() => router.push(`/links/${link.id}`)}
+                      className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition text-gray-500 hover:text-orange-500"
+                      title="View details"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
               </div>
-            );
-          })}
-          
-          {links.length === 0 && (
-            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-              {activeTab === 'active' ? 'No active links found. Create one above!' : 'No deleted links found.'}
-            </div>
+            ))
           )}
         </div>
       </div>

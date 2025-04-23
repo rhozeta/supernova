@@ -111,7 +111,7 @@ export default function LoginPage() {
         
         <div className="mt-6 text-center">
           <button 
-            onClick={handleSignup}
+            onClick={() => router.push('/signup')}
             className="text-orange-500 hover:text-orange-600 font-medium"
           >
             Don't have an account? Create one
