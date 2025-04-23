@@ -43,8 +43,10 @@ export default function DashboardPage() {
   useEffect(() => {
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) router.push('/login');
-      else setUser(user);
+      if (!user) {
+        router.push('/login');
+        return;
+      } else setUser(user);
       // Check content creator status
       const { data, error } = await supabase
         .from('profiles')
