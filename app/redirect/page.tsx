@@ -2,16 +2,9 @@ import { redirect } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 import { trackLinkClick } from '../../lib/trackLinkClick';
 
-interface RedirectPageProps {
-  params: {
-    shortcode: string;
-  };
-}
-
-export default async function RedirectPage({ params }: RedirectPageProps) {
-  // Ensure params is fully resolved before destructuring
-  const resolvedParams = await Promise.resolve(params);
-  const { shortcode } = resolvedParams;
+type Params = Promise<{ shortcode: string }>;
+export default async function RedirectPage({ params }: { params: Params }) {
+  const { shortcode } = await params;
   
   console.log(`[RedirectPage] Processing shortcode: ${shortcode}`);
   
