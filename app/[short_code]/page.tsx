@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 
-export default async function ShortCodeRedirectPage({ params }: { params: { short_code: string } }) {
-  const short_code = params.short_code;
+export default async function ShortCodeRedirectPage({ params }: { params: Promise<{ short_code: string }> }) {
+  const { short_code } = await params;
   // Fetch the link data
   const { data, error } = await supabase
     .from('links')
@@ -16,7 +16,7 @@ export default async function ShortCodeRedirectPage({ params }: { params: { shor
   }
 
   // Increment click_count atomically
-  await supabase.rpc('increment_click_count', { link_short_code: params.short_code });
+  await supabase.rpc('increment_click_count', { link_short_code: short_code });
 
   redirect(data.original_url);
   return null;
