@@ -2,12 +2,12 @@ import { redirect } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 
 export default async function ShortCodeRedirectPage({ params }: { params: { short_code: string } }) {
-
+  const { short_code } = params;
   // Fetch the link data
   const { data, error } = await supabase
     .from('links')
     .select('original_url')
-    .eq('short_code', params.short_code)
+    .eq('short_code', short_code)
     .single();
 
   if (error || !data?.original_url) {
