@@ -6,12 +6,11 @@ interface ShortCodePageProps {
   params: {
     short_code: string;
   };
+  searchParams?: { [key: string]: string | string[] | undefined };
 }
 
 export default async function ShortCodePage({ params }: ShortCodePageProps) {
-  // Ensure params is fully resolved before destructuring
-  const resolvedParams = await Promise.resolve(params);
-  const { short_code } = resolvedParams;
+  const { short_code } = params;
   
   console.log(`[ShortCodePage] Processing shortcode: ${short_code}`);
   

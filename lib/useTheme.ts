@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 export type Theme = 'light' | 'dark';
 
 export function useThemeManager() {
-  const [theme, setTheme] = useState<Theme>('light');
+  const [theme, setTheme] = useState<Theme>('dark');
   const [mounted, setMounted] = useState(false);
 
   // Initialize theme on client side only
@@ -19,9 +19,8 @@ export function useThemeManager() {
       setTheme(storedTheme);
       applyTheme(storedTheme);
     } else {
-      // Check system preference
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const initialTheme = prefersDark ? 'dark' : 'light';
+      // Set dark mode as default
+      const initialTheme = 'dark';
       setTheme(initialTheme);
       applyTheme(initialTheme);
       localStorage.setItem('theme', initialTheme);

@@ -37,16 +37,18 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="flex flex-col items-center py-12">
-      <h1 className="text-2xl font-bold mb-4">Profile</h1>
-      <div className="mb-2">Email: <span className="font-semibold">{user?.email}</span></div>
-      <div className="mb-2">Points: <span className="font-semibold">{points}</span></div>
-      <button
-        onClick={handleLogout}
-        className="mt-4 bg-red-600 text-white px-4 py-2 rounded font-semibold"
-      >
-        Log Out
-      </button>
+    <div className="flex flex-col items-center py-12 bg-white dark:bg-gray-800 text-gray-900 dark:text-white min-h-screen">
+      <div className="p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm max-w-md w-full">
+        <h1 className="text-2xl font-bold mb-6 text-gray-900 dark:text-white text-center">Profile</h1>
+        <div className="mb-4 text-gray-700 dark:text-gray-300">Email: <span className="font-semibold text-gray-900 dark:text-white">{user?.email}</span></div>
+        <div className="mb-6 text-gray-700 dark:text-gray-300">Qubits: <span className="font-semibold text-orange-500">{points}</span></div>
+        <button
+          onClick={handleLogout}
+          className="w-full btn-accent py-2 px-4 rounded-lg font-semibold"
+        >
+          Log Out
+        </button>
+      </div>
     </div>
   );
 }

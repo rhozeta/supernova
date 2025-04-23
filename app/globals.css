@@ -54,6 +54,11 @@
   color: white;
 }
 
+.modal-content {
+  background-color: var(--card-bg);
+  border: var(--card-border);
+}
+
 .dark .modal-content {
   background-color: var(--card-bg-dark);
   border: var(--card-border-dark);
@@ -253,7 +258,7 @@ input:focus, select:focus, textarea:focus {
 
 .stat-label {
   font-size: 0.875rem;
-  color: #666;
+  color: #555;
   margin-top: 0.25rem;
 }
 

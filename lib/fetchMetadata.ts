@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { load } from 'cheerio';
 
 interface LinkMetadata {
   title: string;
@@ -10,60 +9,59 @@ interface LinkMetadata {
 
 /**
  * Fetches metadata from a URL including title, description, and social preview image
+ * Uses a server-side API route to avoid CORS issues
  * @param url The URL to fetch metadata from
  * @returns Promise resolving to metadata object
  */
 export async function fetchMetadata(url: string): Promise<LinkMetadata> {
   try {
-    // Default metadata
+    // Default metadata - use the domain name as a fallback title
+    let domain = '';
+    try {
+      domain = new URL(url).hostname.replace('www.', '');
+    } catch (e) {
+      console.warn('Could not parse domain from URL:', url);
+    }
+    
     const defaultMetadata: LinkMetadata = {
-      title: url,
+      title: domain || url,
       description: '',
       image: '',
       favicon: ''
     };
     
-    // Fetch the HTML content
-    const response = await axios.get(url, {
+    // Use our server-side API route to fetch metadata
+    console.log('Fetching metadata for:', url);
+    const response = await axios.post('/api/metadata', { url }, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'Content-Type': 'application/json'
       },
-      timeout: 5000 // 5 second timeout
+      timeout: 15000 // 15 second timeout
     });
     
-    const html = response.data;
-    const $ = load(html);
+    if (response.status !== 200) {
+      throw new Error(`Failed to fetch metadata: ${response.statusText}`);
+    }
     
-    // Extract metadata
-    const metadata: LinkMetadata = {
-      title: $('title').text().trim() || defaultMetadata.title,
-      description: $('meta[name="description"]').attr('content') || 
-                  $('meta[property="og:description"]').attr('content') || 
-                  defaultMetadata.description,
-      image: $('meta[property="og:image"]').attr('content') || 
-             $('meta[name="twitter:image"]').attr('content') || 
-             defaultMetadata.image,
-      favicon: $('link[rel="icon"]').attr('href') || 
-               $('link[rel="shortcut icon"]').attr('href') || 
-               defaultMetadata.favicon
+    const metadata = response.data;
+    console.log('Fetched metadata:', metadata);
+    
+    return {
+      title: metadata.title || defaultMetadata.title,
+      description: metadata.description || defaultMetadata.description,
+      image: metadata.image || defaultMetadata.image,
+      favicon: metadata.favicon || defaultMetadata.favicon
     };
-    
-    // Resolve relative URLs for images and favicons
-    if (metadata.image && !metadata.image.startsWith('http')) {
-      const baseUrl = new URL(url);
-      metadata.image = new URL(metadata.image, baseUrl.origin).toString();
-    }
-    
-    if (metadata.favicon && !metadata.favicon.startsWith('http')) {
-      const baseUrl = new URL(url);
-      metadata.favicon = new URL(metadata.favicon, baseUrl.origin).toString();
-    }
-    
-    return metadata;
   } catch (error) {
     console.error(`Error fetching metadata for ${url}:`, error);
+    // Try to extract domain as a fallback title
+    let title = url;
+    try {
+      title = new URL(url).hostname.replace('www.', '');
+    } catch {}
+    
     return {
-      title: url,
+      title,
       description: '',
       image: '',
       favicon: ''

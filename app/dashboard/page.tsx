@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { redirect } from 'next/navigation';
 import { useThemeManager } from '../../lib/useTheme';
 import { fetchMetadata } from '../../lib/fetchMetadata';
+import { updateAllUserLinkMetadata, updateLinkMetadata } from '../../lib/updateLinkMetadata';
 
 export default function DashboardPage() {
   const [links, setLinks] = useState<any[]>([]);
@@ -18,10 +19,13 @@ export default function DashboardPage() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [points, setPoints] = useState(0);
   const [totalClicks, setTotalClicks] = useState(0);
+  const [origin, setOrigin] = useState('');
+
   const [username, setUsername] = useState('');
-  const [activeTab, setActiveTab] = useState<'active' | 'deleted'>('active');
+  const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
   const [domainFilter, setDomainFilter] = useState<string>('all');
   const [availableDomains, setAvailableDomains] = useState<string[]>([]);
+  const [refreshingMetadata, setRefreshingMetadata] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -47,7 +51,17 @@ export default function DashboardPage() {
       fetchLinks();
       fetchPoints();
       fetchTotalClicks();
-      fetchUsername();
+    }
+    
+    // Set the origin for client-side only
+    if (typeof window !== 'undefined') {
+      setOrigin(window.location.origin);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user && activeTab) {
+      fetchLinks();
     }
     // eslint-disable-next-line
   }, [user, activeTab]);
@@ -123,7 +137,7 @@ export default function DashboardPage() {
     // Filter by deleted status based on active tab
     if (activeTab === 'active') {
       query = query.eq('deleted', false);
-    } else {
+    } else if (activeTab === 'archived') {
       query = query.eq('deleted', true);
     }
     
@@ -175,6 +189,20 @@ export default function DashboardPage() {
     setLoading(true);
     
     try {
+      // Validate URL
+      let formattedUrl = url.trim();
+      if (!formattedUrl.startsWith('http://') && !formattedUrl.startsWith('https://')) {
+        formattedUrl = 'https://' + formattedUrl;
+      }
+      
+      try {
+        new URL(formattedUrl); // This will throw if URL is invalid
+      } catch (urlError) {
+        alert('Please enter a valid URL');
+        setLoading(false);
+        return;
+      }
+      
       // Generate a short code
       const short_code = Math.random().toString(36).substring(2, 8);
       
@@ -184,10 +212,29 @@ export default function DashboardPage() {
         return;
       }
       
+      // Show loading state in UI
+      setLinks(prevLinks => [
+        {
+          id: 'temp-' + Date.now(),
+          user_id: user.id,
+          original_url: formattedUrl,
+          short_code,
+          deleted: false,
+          created_at: new Date().toISOString(),
+          page_title: 'Loading metadata...',
+          page_description: 'Fetching page information...',
+          page_image: '',
+          page_favicon: '',
+          click_count: 0,
+          isLoading: true
+        },
+        ...prevLinks
+      ]);
+      
       // Initial payload without metadata fields
       const initialPayload = {
         user_id: user.id,
-        original_url: url,
+        original_url: formattedUrl,
         short_code,
         deleted: false
       };
@@ -202,55 +249,43 @@ export default function DashboardPage() {
       if (insertError) {
         console.error('Insert error:', insertError);
         alert('Failed to create link: ' + insertError.message);
+        // Remove the temporary loading link
+        setLinks(prevLinks => prevLinks.filter(link => link.id !== 'temp-' + Date.now()));
         setLoading(false);
         return;
       }
       
       console.log('Link created successfully, fetching metadata...');
       
-      // Fetch metadata in the background
-      fetchMetadata(url).then(async (metadata) => {
+      // Fetch metadata immediately
+      try {
+        const metadata = await fetchMetadata(formattedUrl);
         console.log('Metadata fetched:', metadata);
         
-        try {
-          // First check if the metadata columns exist
-          const { data: columnsData, error: columnsError } = await supabase
-            .from('links')
-            .select('page_title')
-            .limit(1);
-          
-          // If we can query the page_title column, it exists
-          if (!columnsError) {
-            // Update the link with the fetched metadata
-            const { error: updateError } = await supabase
-              .from('links')
-              .update({
-                page_title: metadata.title || url,
-                page_description: metadata.description || '',
-                page_image: metadata.image || '',
-                page_favicon: metadata.favicon || ''
-              })
-              .eq('id', newLink.id);
-            
-            if (updateError) {
-              console.error('Metadata update error:', updateError);
-            } else {
-              console.log('Metadata updated successfully');
-              // Refresh links to show updated metadata
-              fetchLinks();
-            }
-          } else {
-            console.log('Metadata columns do not exist yet. Skipping metadata update.');
-          }
-        } catch (err) {
-          console.error('Error checking or updating metadata:', err);
+        // Update the link with the fetched metadata
+        const { error: updateError } = await supabase
+          .from('links')
+          .update({
+            page_title: metadata.title || formattedUrl,
+            page_description: metadata.description || '',
+            page_image: metadata.image || '',
+            page_favicon: metadata.favicon || ''
+          })
+          .eq('id', newLink.id);
+        
+        if (updateError) {
+          console.error('Metadata update error:', updateError);
+        } else {
+          console.log('Metadata updated successfully');
         }
-      }).catch(metadataError => {
+      } catch (metadataError) {
         console.error('Error fetching metadata:', metadataError);
-      });
+        // Even if metadata fetch fails, we still have a valid link
+      }
       
       // Clear input and refresh links
       setUrl('');
+      // Fetch links to get the updated list with metadata
       fetchLinks();
     } catch (err) {
       console.error('Unexpected error creating link:', err);
@@ -260,16 +295,16 @@ export default function DashboardPage() {
     }
   };
   
-  const handleDelete = async (linkId: string) => {
-    // Mark the link as deleted instead of actually deleting it
+  const handleArchive = async (linkId: string) => {
+    // Mark the link as archived instead of actually deleting it
     const { error } = await supabase
       .from('links')
       .update({ deleted: true })
       .eq('id', linkId);
       
     if (error) {
-      console.error('Delete error:', error);
-      alert('Failed to delete link: ' + error.message);
+      console.error('Archive error:', error);
+      alert('Failed to archive link: ' + error.message);
     } else {
       // Refresh the links list and points
       fetchLinks();
@@ -291,6 +326,45 @@ export default function DashboardPage() {
       // Refresh the links list and points
       fetchLinks();
       fetchPoints();
+    }
+  };
+
+  // Function to refresh metadata for all user links
+  const handleRefreshAllMetadata = async () => {
+    if (!user?.id) return;
+    
+    setRefreshingMetadata(true);
+    try {
+      const updatedCount = await updateAllUserLinkMetadata(user.id);
+      fetchLinks();
+      alert(`Successfully updated metadata for ${updatedCount} links.`);
+    } catch (error) {
+      console.error('Error refreshing metadata:', error);
+      alert('There was an error refreshing link metadata.');
+    } finally {
+      setRefreshingMetadata(false);
+    }
+  };
+  
+  // Function to refresh metadata for a single link
+  const [refreshingLinkIds, setRefreshingLinkIds] = useState<string[]>([]);
+  
+  const handleRefreshLinkMetadata = async (linkId: string) => {
+    if (refreshingLinkIds.includes(linkId)) return;
+    
+    setRefreshingLinkIds(prev => [...prev, linkId]);
+    try {
+      const success = await updateLinkMetadata(linkId);
+      if (success) {
+        fetchLinks();
+      } else {
+        alert('Failed to update link metadata. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error refreshing link metadata:', error);
+      alert('There was an error refreshing link metadata.');
+    } finally {
+      setRefreshingLinkIds(prev => prev.filter(id => id !== linkId));
     }
   };
 
@@ -322,11 +396,11 @@ export default function DashboardPage() {
       
       {/* Stats Section */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 sm:mb-8">
-        <div className="stat-card">
+        <div className="stat-card bg-white dark:bg-gray-800">
           <div className="stat-number">{allLinks.filter(l => !l.deleted).length}</div>
-          <div className="stat-label">Active Links</div>
+          <div className="stat-label text-gray-600 dark:text-gray-400">Active Links</div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card bg-white dark:bg-gray-800">
           <div className="stat-number">{totalClicks}</div>
           <div className="stat-label flex items-center">
             Qubits
@@ -341,15 +415,15 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card bg-white dark:bg-gray-800">
           <div className="stat-number">{allLinks.filter(l => l.deleted).length}</div>
-          <div className="stat-label">Deleted Links</div>
+          <div className="stat-label text-gray-600 dark:text-gray-400">Archived Links</div>
         </div>
       </div>
       {/* Profile Modal */}
       {profileOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4" onClick={() => setProfileOpen(false)}>
-          <div className="modal-glass w-full max-w-md relative" onClick={e => e.stopPropagation()}>
+          <div className="modal-glass w-full max-w-md relative bg-white dark:bg-gray-800" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4 sm:mb-6">
               <h2 className="text-xl sm:text-2xl font-bold">Profile Details</h2>
               <button 
@@ -370,19 +444,19 @@ export default function DashboardPage() {
             
             <div className="space-y-4 mb-8">
               <div className="border-b pb-3">
-                <div className="text-sm text-gray-500 dark:text-gray-400">Username</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Username</div>
                 <div className="font-medium">{username || 'Not set'}</div>
               </div>
               <div className="border-b pb-3">
-                <div className="text-sm text-gray-500 dark:text-gray-400">Email</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Email</div>
                 <div className="font-medium">{user?.email}</div>
               </div>
               <div className="border-b pb-3">
-                <div className="text-sm text-gray-500 dark:text-gray-400">Qubits</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Qubits</div>
                 <div className="font-medium">{totalClicks}</div>
               </div>
               <div className="border-b pb-3">
-                <div className="text-sm text-gray-500 dark:text-gray-400">Theme</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Theme</div>
                 <div className="flex items-center justify-between mt-1">
                   <div className="font-medium">{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</div>
                   <button 
@@ -446,30 +520,30 @@ export default function DashboardPage() {
         {/* Tab Navigation */}
         <div className="flex border-b mb-4">
           <button
-            className={`py-2 px-4 font-medium ${activeTab === 'active' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`py-2 px-4 font-medium ${activeTab === 'active' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300'}`}
             onClick={() => setActiveTab('active')}
           >
             Active Links
           </button>
           <button
-            className={`py-2 px-4 font-medium ${activeTab === 'deleted' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500 hover:text-gray-700'}`}
-            onClick={() => setActiveTab('deleted')}
+            className={`py-2 px-4 font-medium ${activeTab === 'archived' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300'}`}
+            onClick={() => setActiveTab('archived')}
           >
-            Deleted Links
+            Archived Links
           </button>
         </div>
         
         {/* Filter Controls */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
-            <label htmlFor="domainFilter" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor="domainFilter" className="text-sm font-medium text-gray-800 dark:text-gray-300">
               Filter by domain:
             </label>
             <select
               id="domainFilter"
               value={domainFilter}
               onChange={(e) => setDomainFilter(e.target.value)}
-              className="rounded-lg border border-gray-200 px-3 py-2 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white w-full sm:w-auto"
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white text-gray-800 dark:bg-gray-700 dark:border-gray-600 dark:text-white w-full sm:w-auto"
             >
               {availableDomains.map((domain) => (
                 <option key={domain} value={domain}>
@@ -479,7 +553,7 @@ export default function DashboardPage() {
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Sort by:</span>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-2">Sort by:</span>
             <div className="flex items-center gap-1">
               <button 
                 onClick={() => {
@@ -532,27 +606,27 @@ export default function DashboardPage() {
         </div>
         
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
-          <h2 className="text-xl font-bold">{activeTab === 'active' ? 'Your Links' : 'Deleted Links'}</h2>
+          <h2 className="text-xl font-bold">{activeTab === 'active' ? 'Your Links' : 'Archived Links'}</h2>
         </div>
         
         <div className="space-y-4">
           {filteredLinks.length === 0 ? (
-            <div className="text-center py-8">
-              <div className="text-gray-500 dark:text-gray-400">No links found</div>
-              {activeTab === 'deleted' && (
-                <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                  Links you delete will appear here
+            <div className="text-center py-8 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="text-gray-600 dark:text-gray-400">No links found</div>
+              {activeTab === 'archived' && (
+                <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                  Links you archive will appear here
                 </div>
               )}
               {domainFilter !== 'all' && (
-                <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
                   Try changing your domain filter
                 </div>
               )}
             </div>
           ) : (
             filteredLinks.map(link => (
-              <div key={link.id} className="p-3 sm:p-4 border border-gray-100 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900 relative hover:shadow-md transition-shadow">
+              <div key={link.id} className="p-3 sm:p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 relative hover:shadow-md transition-shadow">
                 {/* Activity Icon */}
                 <div className="absolute left-3 sm:left-4 top-3 sm:top-4 flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-orange-100 flex items-center justify-center">
                   {link.page_favicon && typeof link.page_favicon === 'string' ? (
@@ -587,16 +661,16 @@ export default function DashboardPage() {
                 <div className="pl-12">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h3 className="font-medium text-gray-800 dark:text-white">
+                      <h3 className="font-medium text-gray-900 dark:text-white">
                         {link.page_title && typeof link.page_title === 'string' && link.page_title !== 'Loading...' ? link.page_title : link.short_code}
                       </h3>
                       <a 
-                        href={`${window.location.origin}/${link.short_code}`} 
+                        href={`${origin}/${link.short_code}`} 
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="text-sm text-orange-500 hover:text-orange-600"
                       >
-                        {window.location.origin}/{link.short_code}
+                        {origin}/{link.short_code}
                       </a>
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -606,69 +680,79 @@ export default function DashboardPage() {
                   
                   {/* Preview Image */}
                   {link.page_image && typeof link.page_image === 'string' && link.page_image.trim() !== '' && (
-                    <div className="mt-3 rounded-lg overflow-hidden" style={{ maxHeight: '150px' }}>
+                    <a 
+                      href={link.original_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="mt-3 inline-block rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 hover:opacity-90 transition-opacity"
+                      style={{ maxWidth: '200px' }}
+                    >
                       <img 
                         src={link.page_image} 
                         alt="Preview" 
-                        className="w-full h-auto object-cover" 
-                        style={{ maxHeight: '150px' }}
+                        className="w-full h-auto object-contain" 
+                        style={{ maxHeight: '120px' }}
                         onError={(e) => {
                           // Hide image if it fails to load
                           const img = e.currentTarget as HTMLImageElement;
-                          img.style.display = 'none';
+                          const parent = img.parentElement;
+                          if (parent) parent.style.display = 'none';
                         }}
                       />
-                    </div>
+                    </a>
                   )}
                   
                   {/* Description */}
                   {link.page_description && typeof link.page_description === 'string' && link.page_description.trim() !== '' && (
-                    <div className="mt-2 text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
                       {link.page_description}
-                    </div>
+                    </p>
                   )}
                   
-                  <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 break-all">
+                  <div className="mt-2 text-xs text-gray-600 dark:text-gray-400 break-all">
                     {link.original_url}
                   </div>
                   
-                  <div className="mt-4 flex justify-between items-center">
-                    <div className="flex items-center space-x-4">
-                      <div className="flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1 text-blue-500">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672 13.684 16.6m0 0-2.51 2.225.569-9.47 5.227 7.917-3.286-.672Zm-7.518-.267A8.25 8.25 0 1 1 20.25 10.5M8.288 14.212A5.25 5.25 0 1 1 17.25 10.5" />
-                        </svg>
-                        <span className="text-sm font-medium">{link.click_count || 0} clicks</span>
-                      </div>
-                      
-                      {activeTab === 'active' ? (
-                        <button
-                          onClick={() => handleDelete(link.id)}
-                          className="text-sm text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 flex items-center"
-                          aria-label="Delete link"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                          </svg>
-                          Delete
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleRestore(link.id)}
-                          className="text-sm text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 flex items-center"
-                          aria-label="Restore link"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
-                          </svg>
-                          Restore
-                        </button>
-                      )}
+                  {/* Click Count Badge */}
+                  <div className="mt-4 flex items-center">
+                    <div className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-100 px-3 py-1 rounded-full flex items-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672 13.684 16.6m0 0-2.51 2.225.569-9.47 5.227 7.917-3.286-.672Zm-7.518-.267A8.25 8.25 0 1 1 20.25 10.5M8.288 14.212A5.25 5.25 0 1 1 17.25 10.5" />
+                      </svg>
+                      <span className="font-medium">{link.click_count || 0} clicks</span>
                     </div>
-                    
+                  </div>
+                  
+                  {/* Action Buttons */}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {/* Refresh Metadata Button */}
                     <button
-                      className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-                      title="Copy link"
+                      onClick={() => handleRefreshLinkMetadata(link.id)}
+                      disabled={refreshingLinkIds.includes(link.id)}
+                      className={`px-2 py-1 text-xs rounded-md flex items-center ${refreshingLinkIds.includes(link.id) ? 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400' : 'bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900 dark:text-blue-100 dark:hover:bg-blue-800'}`}
+                      aria-label="Refresh metadata for this link"
+                    >
+                      {refreshingLinkIds.includes(link.id) ? (
+                        <>
+                          <svg className="animate-spin h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Updating...
+                        </>
+                      ) : (
+                        <>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Refresh Metadata
+                        </>
+                      )}
+                    </button>
+                    
+                    {/* Copy Button */}
+                    <button
+                      className="px-2 py-1 text-xs rounded-md flex items-center bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
                       onClick={async () => {
                         await navigator.clipboard.writeText(`${window.location.origin}/${link.short_code}`);
                         setCopiedLinkId(link.id);
@@ -676,24 +760,59 @@ export default function DashboardPage() {
                       }}
                       aria-label="Copy shortened link"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-gray-500">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" />
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75a2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" />
                       </svg>
+                      Copy Link
                       {copiedLinkId === link.id && (
-                        <span className="absolute right-0 top-8 bg-gray-800 text-white text-xs rounded px-2 py-1 shadow z-30 whitespace-nowrap">
+                        <span className="absolute ml-16 bg-gray-800 text-white text-xs rounded px-2 py-1 shadow z-30 whitespace-nowrap">
                           Copied!
                         </span>
                       )}
                     </button>
+                    
+                    {/* Stats Button */}
                     <button
                       onClick={() => router.push(`/links/${link.id}`)}
-                      className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition text-gray-500 hover:text-orange-500"
-                      title="View details"
+                      className="px-2 py-1 text-xs rounded-md flex items-center bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                      aria-label="View link statistics"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
                       </svg>
+                      View Stats
                     </button>
+                    
+                    {/* Delete/Restore Button */}
+                    {activeTab === 'active' ? (
+                      <div className="relative group">
+                        <button
+                          onClick={() => handleArchive(link.id)}
+                          className="px-2 py-1 text-xs rounded-md flex items-center bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50"
+                          aria-label="Archive link"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                          </svg>
+                          Archive
+                        </button>
+                        <div className="absolute z-10 invisible group-hover:visible bg-gray-800 text-white text-xs rounded-lg py-2 px-3 left-0 bottom-full mb-2 w-64 shadow-lg">
+                          Archiving your link will make it stop working. You will retain any Qubits earned from this link. You can restore links at any time.
+                          <div className="absolute top-full left-2 -mt-1 border-4 border-transparent border-t-gray-800"></div>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleRestore(link.id)}
+                        className="px-2 py-1 text-xs rounded-md flex items-center bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-300 dark:hover:bg-green-900/50"
+                        aria-label="Restore link"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                        </svg>
+                        Restore
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
