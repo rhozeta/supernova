@@ -3,8 +3,9 @@ import { supabase } from '../../lib/supabaseClient';
 import { trackLinkClick } from '../../lib/trackLinkClick';
 import { Metadata } from 'next';
 
-export default async function ShortCodePage({ params }: { params: { short_code: string } }) {
-  const { short_code } = params;
+type Params = Promise<{ short_code: string }>;
+export default async function ShortCodePage({ params }: { params: Params }) {
+  const { short_code } = await params;
   
   console.log(`[ShortCodePage] Processing shortcode: ${short_code}`);
   
