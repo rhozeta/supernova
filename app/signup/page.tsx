@@ -10,6 +10,7 @@ export default function SignupPage() {
   const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [contentCreator, setContentCreator] = useState(false);
   const router = useRouter();
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -32,6 +33,7 @@ export default function SignupPage() {
         id: user.id,
         username: username,
         points: 0,
+        content_creator: contentCreator,
         created_at: new Date().toISOString(),
       });
       if (profileError) {
@@ -95,6 +97,18 @@ export default function SignupPage() {
             />
           </div>
           
+          <div className="flex items-center mb-2">
+            <input
+              id="content-creator"
+              type="checkbox"
+              checked={contentCreator}
+              onChange={e => setContentCreator(e.target.checked)}
+              className="mr-2"
+            />
+            <label htmlFor="content-creator" className="text-sm text-gray-700 dark:text-gray-300">
+              I am a content creator
+            </label>
+          </div>
           <button
             type="submit"
             className="w-full btn-accent py-3 rounded-lg font-semibold disabled:opacity-50 mt-2"

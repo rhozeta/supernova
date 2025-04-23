@@ -25,13 +25,29 @@ export default async function ShortCodePage({ params }: { params: Params }) {
     return redirect('/login');
   }
 
+  // Parse utm_ref from the short link (if present)
+  let referrer = null;
+  if (typeof window !== 'undefined') {
+    const urlParams = new URLSearchParams(window.location.search);
+    referrer = urlParams.get('utm_ref');
+  } else if (params && typeof params === 'object' && 'utm_ref' in params) {
+    referrer = params.utm_ref;
+  } else {
+    // Try to parse from process.env if SSR (fallback)
+    const search = (typeof location !== 'undefined') ? location.search : '';
+    if (search) {
+      const urlParams = new URLSearchParams(search);
+      referrer = urlParams.get('utm_ref');
+    }
+  }
+
   // Server-side: try to auto-record click and redirect if not suspicious/no captcha required
   const apiRes = await fetch(
     `${process.env.BASE_URL || 'http://localhost:3000'}/api/click`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ link_id: link.id }),
+      body: JSON.stringify({ link_id: link.id, referrer }),
       cache: 'no-store',
     }
   );

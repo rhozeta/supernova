@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     console.log('Request body:', body);
     // Print a stack trace for every call for debugging
     console.trace('API /api/click stack trace');
-    const { link_id, user_id, captcha_token } = body;
+    const { link_id, user_id, captcha_token, referrer } = body;
     const ip = getClientIp(req);
     const userAgent = req.headers.get('user-agent') || 'unknown';
     const now = new Date();
@@ -156,6 +156,7 @@ export async function POST(req: NextRequest) {
       const { error: insertError } = await supabase.from('link_clicks').insert({
         link_id,
         user_id: user_id || null,
+        referrer: referrer || user_id || null,
         clicked_at: now.toISOString(),
         ip_address: ip,
         user_agent: userAgent,
@@ -163,6 +164,33 @@ export async function POST(req: NextRequest) {
       if (insertError) {
         console.error('Supabase error inserting click:', insertError);
         return NextResponse.json({ error: 'Failed to record click.' }, { status: 500 });
+      }
+
+      // --- Increment the original creator's link click count if this is a copied/shared link ---
+      // Get the link details to find original_url and creator_id
+      const { data: clickedLink, error: fetchLinkError } = await supabase
+        .from('links')
+        .select('id, original_url, creator_id, user_id')
+        .eq('id', link_id)
+        .single();
+      if (!fetchLinkError && clickedLink) {
+        // Only increment if this is a copied/shared link (user_id !== creator_id)
+        if (clickedLink.user_id !== clickedLink.creator_id) {
+          // Find the original creator's link (same original_url, creator_id = user_id)
+          const { data: originalLinks, error: origError } = await supabase
+            .from('links')
+            .select('id, click_count')
+            .eq('original_url', clickedLink.original_url)
+            .eq('user_id', clickedLink.creator_id)
+            .limit(1);
+          if (!origError && originalLinks && originalLinks.length > 0) {
+            const origLink = originalLinks[0];
+            await supabase
+              .from('links')
+              .update({ click_count: (origLink.click_count || 0) + 1 })
+              .eq('id', origLink.id);
+          }
+        }
       }
     } catch (err) {
       console.error('Exception inserting click:', err);

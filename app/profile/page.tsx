@@ -3,11 +3,15 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
+import NavMenu from "../components/NavMenu";
+
 export default function ProfilePage() {
   const [user, setUser] = useState<any>(null);
   const [points, setPoints] = useState<number>(0);
+
   const router = useRouter();
 
+  // Get profile user from query param or session (for now, use session user)
   useEffect(() => {
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -37,18 +41,21 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="flex flex-col items-center py-12 bg-white dark:bg-gray-800 text-gray-900 dark:text-white min-h-screen">
-      <div className="p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm max-w-md w-full">
-        <h1 className="text-2xl font-bold mb-6 text-gray-900 dark:text-white text-center">Profile</h1>
-        <div className="mb-4 text-gray-700 dark:text-gray-300">Email: <span className="font-semibold text-gray-900 dark:text-white">{user?.email}</span></div>
-        <div className="mb-6 text-gray-700 dark:text-gray-300">Qubits: <span className="font-semibold text-orange-500">{points}</span></div>
-        <button
-          onClick={handleLogout}
-          className="w-full btn-accent py-2 px-4 rounded-lg font-semibold"
-        >
-          Log Out
-        </button>
+    <>
+      <NavMenu />
+      <div className="flex flex-col items-center justify-center min-h-screen p-4">
+        <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 border border-gray-100 dark:border-gray-700">
+          <h1 className="text-2xl font-bold mb-6 text-gray-900 dark:text-white text-center">Profile</h1>
+          <div className="mb-4 text-gray-700 dark:text-gray-300">Email: <span className="font-semibold text-gray-900 dark:text-white">{user?.email}</span></div>
+          <div className="mb-6 text-gray-700 dark:text-gray-300">Qubits: <span className="font-semibold text-orange-500">{points}</span></div>
+          <button
+            onClick={handleLogout}
+            className="w-full btn-accent py-2 px-4 rounded-lg font-semibold"
+          >
+            Log Out
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

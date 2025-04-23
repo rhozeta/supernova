@@ -158,36 +158,36 @@ export default function DashboardPage() {
 
   const fetchLinks = async () => {
     if (!user?.id) return;
-    // First, fetch all links for stats
-    const { data: allData, error: allError } = await supabase
+    // Fetch user's own links
+    const { data: ownLinks, error: ownLinksError } = await supabase
       .from('links')
-      .select('*')
+      .select('*, original_creator: user_id (id, username)')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
-    
-    if (!allError) {
-      setAllLinks(allData || []);
-      updateAvailableDomains(allData || []);
-    }
-    
-    // Then, fetch filtered links for display based on active tab
-    let query = supabase
-      .from('links')
-      .select('*, creator:creator_id(id,username)')
-      .eq('user_id', user.id);
-    
-    // Filter by deleted status based on active tab
-    if (activeTab === 'active') {
-      query = query.eq('deleted', false);
-    } else if (activeTab === 'archived') {
-      query = query.eq('deleted', true);
-    }
-    
-    // Execute query with ordering
-    const { data, error } = await query.order('created_at', { ascending: false });
-    
-    if (!error) setLinks(data || []);
-    // Also refresh total clicks when links are refreshed
+
+    // Fetch link_refs (saved from creators)
+    const { data: refLinks, error: refLinksError } = await supabase
+      .from('link_refs')
+      .select('*, original_link: original_link_id(*, user_id, user: user_id (id, username))')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    // Merge and mark type for UI
+    const ownLinksWithType = (ownLinks || []).map(l => ({ ...l, _linkType: 'original' }));
+    const refLinksWithType = (refLinks || []).map(l => ({
+      ...l,
+      ...l.original_link,
+      _linkType: 'ref',
+      original_creator: l.original_link && l.original_link.user_id ? { id: l.original_link.user_id, username: l.original_link.user?.username } : null,
+      utm_param: l.utm_param,
+      ref_id: l.id
+    }));
+
+    // Combine for display, originals first
+    const allForDisplay = [...ownLinksWithType, ...refLinksWithType];
+    setLinks(allForDisplay);
+    setAllLinks(ownLinks || []);
+    updateAvailableDomains(ownLinks || []);
     fetchTotalClicks();
   };
 
@@ -567,28 +567,7 @@ export default function DashboardPage() {
       )}
 
       {/* Create Link Form */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700 mb-8">
-        <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white">Create New Link</h2>
-        {contentCreator && (
-          <form onSubmit={handleCreate} className="flex gap-2 mb-4">
-            <input
-              type="text"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              className="flex-1 px-3 py-2 rounded border border-gray-300 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:bg-gray-800 dark:text-white"
-              placeholder="Paste a long URL to shorten..."
-              required
-            />
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-60"
-            >
-              {loading ? 'Shortening...' : 'Shorten'}
-            </button>
-          </form>
-        )}
-      </div>
+     
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700 relative">
         {/* Refresh Button Top Right */}
@@ -708,7 +687,7 @@ export default function DashboardPage() {
             </div>
           ) : (
             filteredLinks.map(link => (
-              <div key={link.id} className="p-3 sm:p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 relative hover:shadow-md transition-shadow">
+              <div key={link.ref_id || link.id} className="p-3 sm:p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 relative hover:shadow-md transition-shadow">
                 {/* Activity Icon */}
                 <div className="absolute left-3 sm:left-4 top-3 sm:top-4 flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-orange-100 flex items-center justify-center">
                   {link.page_favicon && typeof link.page_favicon === 'string' ? (
@@ -746,23 +725,32 @@ export default function DashboardPage() {
                       <h3 className="font-medium text-gray-900 dark:text-white">
                         {link.page_title && typeof link.page_title === 'string' && link.page_title !== 'Loading...' ? link.page_title : link.short_code}
                       </h3>
-                      {/* Owner username, clickable */}
-                      {link.creator && link.creator.username && (
+                      {/* Original creator username, clickable */}
+                      {link.original_creator && link.original_creator.username && (
                         <Link
-                          href={`/profile/${link.creator.id}`}
+                          href={`/creator/${link.original_creator.id}`}
                           className="text-xs text-orange-600 dark:text-orange-400 hover:underline font-medium ml-1"
                         >
-                          @{link.creator.username}
+                          @{link.original_creator.username} (original creator)
                         </Link>
                       )}
                       <a 
-                        href={`${origin}/${link.short_code}`} 
+                        href={link._linkType === 'ref' && link.utm_param ? `${origin}/${link.short_code}?utm_ref=${link.utm_param}` : `${origin}/${link.short_code}`}
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="text-sm text-orange-500 hover:text-orange-600"
                       >
-                        {origin}/{link.short_code}
+                        {link._linkType === 'ref' && link.utm_param ? `${origin}/${link.short_code}?utm_ref=${link.utm_param}` : `${origin}/${link.short_code}`}
                       </a>
+                      {link._linkType === 'ref' ? (
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Saved from creator
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Your original link
+                        </div>
+                      )}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
                       {link.created_at ? new Date(link.created_at).toLocaleString() : 'N/A'}

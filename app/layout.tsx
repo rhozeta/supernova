@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "../components/ThemeProvider";
+import NavMenu from "./components/NavMenu";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -33,6 +34,7 @@ export default function RootLayout({
   <img src="/supernova-logo.svg" alt="Supernova Logo" className="h-12 w-12 mr-3" />
   <span className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Supernova</span>
 </div>
+{/* NavMenu is now included in all pages except login and signup. */}
 <ThemeProvider>
   {children}
 </ThemeProvider>
