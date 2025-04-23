@@ -1,16 +1,20 @@
 import { redirect } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 import { trackLinkClick } from '../../lib/trackLinkClick';
+import { Metadata } from 'next';
 
-// Use the correct type for Next.js App Router pages
-type ShortCodePageProps = {
-  params: {
-    short_code: string;
-  };
-  searchParams?: { [key: string]: string | string[] | undefined };
+// Define the params type separately for clarity
+type Params = {
+  short_code: string;
+};
+
+// Use proper Next.js types for the page component
+type Props = {
+  params: Params;
+  searchParams: { [key: string]: string | string[] | undefined };
 }
 
-export default async function ShortCodePage({ params }: ShortCodePageProps) {
+export default async function ShortCodePage({ params }: Props) {
   const { short_code } = params;
   
   console.log(`[ShortCodePage] Processing shortcode: ${short_code}`);
