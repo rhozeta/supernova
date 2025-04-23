@@ -48,12 +48,10 @@ export default function SignupPage() {
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 px-4">
       <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 border border-gray-100 dark:border-gray-700">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8 text-orange-500">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
-            </svg>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Create an Account</h1>
+          <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-transparent">
+  <img src="/supernova-logo.svg" alt="Supernova Logo" className="h-16 w-16" />
+</div>
+<h1 className="text-2xl font-bold text-gray-800 dark:text-white">Create your Supernova account</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-2">Join Link Shortener to start creating shortened links</p>
         </div>
         
