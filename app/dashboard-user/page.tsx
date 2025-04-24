@@ -18,21 +18,12 @@ export default function DashboardPage() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const [userChecked, setUserChecked] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [points, setPoints] = useState(0);
   const [totalClicks, setTotalClicks] = useState(0);
   const [contentCreator, setContentCreator] = useState(false);
-
   const [origin, setOrigin] = useState('');
-
-  // Helper to get short link with utm_ref param
-  function getShortLinkWithUtm(short_code: string, user_id: string) {
-    if (origin) {
-      return `${origin}/${short_code}?utm_ref=${user_id}`;
-    }
-    return `/${short_code}?utm_ref=${user_id}`;
-  }
-
   const [username, setUsername] = useState('');
   const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
   const [domainFilter, setDomainFilter] = useState<string>('all');
@@ -40,19 +31,35 @@ export default function DashboardPage() {
   const [refreshingMetadata, setRefreshingMetadata] = useState(false);
   const router = useRouter();
 
+  // Render loading or redirect state if user is not checked yet
+  if (!userChecked) {
+    return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  }
+  // If user is null after check, don't render dashboard (redirect will already have happened)
+  if (!user) {
+    return null;
+  }
+
   useEffect(() => {
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) router.push('/login');
-      else setUser(user);
-      // Check content creator status
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('content_creator')
-        .eq('id', user.id)
-        .single();
-      if (!data?.content_creator) {
-        router.push('/dashboard-user');
+      if (!user) {
+        router.push('/login');
+        setUserChecked(true);
+        return;
+      } else {
+        setUser(user);
+        setUserChecked(true);
+        // Check content creator status
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('content_creator')
+          .eq('id', user.id)
+          .single();
+        if (!data?.content_creator) {
+          router.push('/dashboard-user');
+        }
+      }
       }
     };
     getUser();
@@ -82,7 +89,7 @@ export default function DashboardPage() {
 
   // Fetch content creator status
   const fetchContentCreator = async () => {
-    if (!user?.id) return;
+    if (!user || !user.id) return;
     const { data, error } = await supabase
       .from('profiles')
       .select('content_creator')
@@ -93,7 +100,7 @@ export default function DashboardPage() {
 
   // Update content creator status
   const handleContentCreatorToggle = async () => {
-    if (!user?.id) return;
+    if (!user || !user.id) return;
     const { error } = await supabase
       .from('profiles')
       .update({ content_creator: !contentCreator })
@@ -101,14 +108,13 @@ export default function DashboardPage() {
     if (!error) setContentCreator(!contentCreator);
   };
 
-
   // Always fetch links when switching tabs
   useEffect(() => {
     if (user) {
       fetchLinks();
     }
     // eslint-disable-next-line
-  }, [activeTab]);
+  }, [activeTab, user]);
 
   // Extract domain from URL
   const extractDomain = (url: string): string => {
@@ -157,7 +163,7 @@ export default function DashboardPage() {
   }, [links, domainFilter, sortBy, sortDirection]);
 
   const fetchLinks = async () => {
-    if (!user?.id) return;
+    if (!user || !user.id) return;
     // Fetch user's own links
     const { data: ownLinks, error: ownLinksError } = await supabase
       .from('links')
@@ -193,7 +199,7 @@ export default function DashboardPage() {
 
   // Fetch the username from profiles table
   const fetchUsername = async () => {
-    if (!user?.id) return;
+    if (!user || !user.id) return;
     const { data, error } = await supabase
       .from('profiles')
       .select('username')
@@ -205,7 +211,7 @@ export default function DashboardPage() {
 
   // Fetch the total click count for all user's links
   const fetchTotalClicks = async () => {
-    if (!user?.id) return;
+    if (!user || !user.id) return;
     // Count clicks from ALL links, regardless of deleted status
     const { data, error } = await supabase
       .from('links')
@@ -220,7 +226,7 @@ export default function DashboardPage() {
 
   // Fetch the user's points
   const fetchPoints = async () => {
-    if (!user?.id) return;
+    if (!user || !user.id) return;
     const { data, error } = await supabase
       .from('profiles')
       .select('points')
@@ -251,8 +257,8 @@ export default function DashboardPage() {
       // Generate a short code
       const short_code = Math.random().toString(36).substring(2, 8);
       
-      if (!user?.id) {
-        alert('User ID is missing. Cannot create link.');
+      if (!user || !user.id) {
+        alert('You must be logged in to create a link.');
         setLoading(false);
         return;
       }
@@ -376,7 +382,7 @@ export default function DashboardPage() {
 
   // Function to refresh metadata for all user links
   const handleRefreshAllMetadata = async () => {
-    if (!user?.id) return;
+    if (!user || !user.id) return;
     
     setRefreshingMetadata(true);
     try {
