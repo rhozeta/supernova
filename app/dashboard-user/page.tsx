@@ -10,6 +10,7 @@ import { updateAllUserLinkMetadata, updateLinkMetadata } from '../../lib/updateL
 import NavMenu from '../components/NavMenu';
 
 export default function DashboardPage() {
+  const [searchTerm, setSearchTerm] = useState('');
   const [links, setLinks] = useState<any[]>([]);
   const [allLinks, setAllLinks] = useState<any[]>([]);
   const [sortBy, setSortBy] = useState<'date' | 'clicks'>('date');
@@ -25,21 +26,13 @@ export default function DashboardPage() {
   const [contentCreator, setContentCreator] = useState(false);
   const [origin, setOrigin] = useState('');
   const [username, setUsername] = useState('');
-  const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
+  const [activeTab, setActiveTab] = useState<'active' | 'archived' | 'all'>('active');
   const [domainFilter, setDomainFilter] = useState<string>('all');
   const [availableDomains, setAvailableDomains] = useState<string[]>([]);
   const [refreshingMetadata, setRefreshingMetadata] = useState(false);
   const router = useRouter();
 
-  // Render loading or redirect state if user is not checked yet
-  if (!userChecked) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>;
-  }
-  // If user is null after check, don't render dashboard (redirect will already have happened)
-  if (!user) {
-    return null;
-  }
-
+  // Fetch user on mount before rendering
   useEffect(() => {
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -50,29 +43,18 @@ export default function DashboardPage() {
       } else {
         setUser(user);
         setUserChecked(true);
-        // Check content creator status
         const { data, error } = await supabase
           .from('profiles')
           .select('content_creator')
           .eq('id', user.id)
           .single();
-        if (!data?.content_creator) {
-          router.push('/dashboard-user');
+        if (data?.content_creator) {
+          router.push('/dashboard');
         }
-      }
       }
     };
     getUser();
   }, [router]);
-
-  // Logout function
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-  };
-
-  // Get theme from our custom hook
-  const { theme, toggleTheme } = useThemeManager();
 
   useEffect(() => {
     if (user) {
@@ -138,29 +120,62 @@ export default function DashboardPage() {
   useEffect(() => {
     if (links.length > 0) {
       let result = [...links];
-      // Apply domain filter if not 'all'
+      // Apply domain filter
       if (domainFilter !== 'all') {
         result = result.filter(link => extractDomain(link.original_url) === domainFilter);
+      }
+      // Filter by active/archived tab
+      if (activeTab === 'active') {
+        result = result.filter(link => {
+          if (link._linkType === 'ref') {
+            return !link.removed_by_user;
+          }
+          return !link.deleted;
+        });
+      } else if (activeTab === 'archived') {
+        result = result.filter(link => {
+          if (link._linkType === 'ref') {
+            return link.removed_by_user;
+          }
+          return link.deleted;
+        });
+      } else if (activeTab === 'all') {
+        // Do not filter by deleted/archived status, show all links
+        // Only domain filter and search filter apply
+      }
+      // Apply search filter (broad, case-insensitive)
+      if (searchTerm.trim() !== '') {
+        const term = searchTerm.toLowerCase();
+        result = result.filter(link => {
+          const pageTitle = (link.page_title || '').toLowerCase();
+          const creatorUsername = (link.original_creator?.username || link.user?.username || '').toLowerCase();
+          const originalUrl = (link.original_url || '').toLowerCase();
+          const domain = extractDomain(link.original_url).toLowerCase();
+          return (
+            pageTitle.includes(term) ||
+            creatorUsername.includes(term) ||
+            originalUrl.includes(term) ||
+            domain.includes(term)
+          );
+        });
       }
       // Apply sorting
       if (sortBy === 'date') {
         result.sort((a, b) => {
           const dateA = new Date(a.created_at).getTime();
           const dateB = new Date(b.created_at).getTime();
-          return sortDirection === 'desc' ? dateB - dateA : dateA - dateB;
+          return sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
         });
       } else if (sortBy === 'clicks') {
         result.sort((a, b) => {
-          const clicksA = a.click_count || 0;
-          const clicksB = b.click_count || 0;
-          return sortDirection === 'desc' ? clicksB - clicksA : clicksA - clicksB;
+          return sortDirection === 'asc' ? (a.click_count || 0) - (b.click_count || 0) : (b.click_count || 0) - (a.click_count || 0);
         });
       }
       setFilteredLinks(result);
     } else {
       setFilteredLinks([]);
     }
-  }, [links, domainFilter, sortBy, sortDirection]);
+  }, [links, domainFilter, sortBy, sortDirection, activeTab, searchTerm]);
 
   const fetchLinks = async () => {
     if (!user || !user.id) return;
@@ -174,20 +189,28 @@ export default function DashboardPage() {
     // Fetch link_refs (saved from creators)
     const { data: refLinks, error: refLinksError } = await supabase
       .from('link_refs')
-      .select('*, original_link: original_link_id(*, user_id, user: user_id (id, username))')
+      .select('*, original_link: original_link_id(*, user_id, user: user_id (id, username), deleted), removed_by_creator')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
+    // If the original link is deleted, mark removed_by_creator=true in link_refs (client-side fallback, but should be handled in DB trigger in production)
+    const refLinksWithType = (refLinks || []).map(l => {
+      const removedByCreator = l.removed_by_creator !== undefined ? l.removed_by_creator : (l.original_link && l.original_link.deleted === true);
+      const removedByUser = l.removed_by_user === true;
+      return {
+        ...l,
+        ...l.original_link,
+        _linkType: 'ref',
+        original_creator: l.original_link && l.original_link.user_id ? { id: l.original_link.user_id, username: l.original_link.user?.username } : null,
+        utm_param: l.utm_param,
+        ref_id: l.id,
+        removed_by_creator: removedByCreator,
+        removed_by_user: removedByUser,
+      };
+    });
+
     // Merge and mark type for UI
     const ownLinksWithType = (ownLinks || []).map(l => ({ ...l, _linkType: 'original' }));
-    const refLinksWithType = (refLinks || []).map(l => ({
-      ...l,
-      ...l.original_link,
-      _linkType: 'ref',
-      original_creator: l.original_link && l.original_link.user_id ? { id: l.original_link.user_id, username: l.original_link.user?.username } : null,
-      utm_param: l.utm_param,
-      ref_id: l.id
-    }));
 
     // Combine for display, originals first
     const allForDisplay = [...ownLinksWithType, ...refLinksWithType];
@@ -264,23 +287,13 @@ export default function DashboardPage() {
       }
       
       // Show loading state in UI
-      setLinks(prevLinks => [
-        {
-          id: 'temp-' + Date.now(),
-          user_id: user.id,
-          original_url: formattedUrl,
-          short_code,
-          deleted: false,
-          created_at: new Date().toISOString(),
-          page_title: 'Loading metadata...',
-          page_description: 'Fetching page information...',
-          page_image: '',
-          page_favicon: '',
-          click_count: 0,
-          isLoading: true
-        },
-        ...prevLinks
-      ]);
+      setLinks(prev =>
+        prev.map(link =>
+          link.id === 'temp-' + Date.now()
+            ? { ...link, isLoading: true }
+            : link
+        )
+      );
       
       // Initial payload without metadata fields
       const initialPayload = {
@@ -346,37 +359,65 @@ export default function DashboardPage() {
     }
   };
   
-  const handleArchive = async (linkId: string) => {
-    // Mark the link as archived instead of actually deleting it
-    const { error } = await supabase
-      .from('links')
-      .update({ deleted: true })
-      .eq('id', linkId);
-      
-    if (error) {
-      console.error('Archive error:', error);
-      alert('Failed to archive link: ' + error.message);
+  const handleArchive = async (linkId: string, refId?: string) => {
+    if (contentCreator) {
+      // Content creators archive the original link
+      const { error } = await supabase
+        .from('links')
+        .update({ deleted: true })
+        .eq('id', linkId);
+      if (error) {
+        console.error('Archive error:', error);
+        alert('Failed to archive link: ' + error.message);
+      } else {
+        fetchLinks();
+        fetchPoints();
+      }
     } else {
-      // Refresh the links list and points
-      fetchLinks();
-      fetchPoints();
+      // Non-creators remove the reference from their dashboard
+      if (!refId) {
+        alert('Reference ID missing for link removal.');
+        return;
+      }
+      const { error } = await supabase
+        .from('link_refs')
+        .update({ removed_by_user: true })
+        .eq('id', refId);
+      if (error) {
+        console.error('Remove reference error:', error);
+        alert('Failed to remove link from dashboard: ' + error.message);
+      } else {
+        fetchLinks();
+      }
     }
   };
   
-  const handleRestore = async (linkId: string) => {
-    // Restore a deleted link
-    const { error } = await supabase
-      .from('links')
-      .update({ deleted: false })
-      .eq('id', linkId);
-      
-    if (error) {
-      console.error('Restore error:', error);
-      alert('Failed to restore link: ' + error.message);
+  const handleRestore = async (linkId: string, refId?: string, linkType?: string) => {
+    if (linkType === 'ref' && refId) {
+      // Restore a reference link for the user
+      const { error } = await supabase
+        .from('link_refs')
+        .update({ removed_by_user: false })
+        .eq('id', refId);
+      if (error) {
+        console.error('Restore reference error:', error);
+        alert('Failed to restore link to dashboard: ' + error.message);
+      } else {
+        fetchLinks();
+      }
     } else {
-      // Refresh the links list and points
-      fetchLinks();
-      fetchPoints();
+      // Restore a deleted original link
+      const { error } = await supabase
+        .from('links')
+        .update({ deleted: false })
+        .eq('id', linkId);
+      if (error) {
+        console.error('Restore error:', error);
+        alert('Failed to restore link: ' + error.message);
+      } else {
+        fetchLinks();
+        fetchPoints();
+      }
     }
   };
 
@@ -440,16 +481,34 @@ export default function DashboardPage() {
     };
   }, []);
 
+  // Logout function
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+  };
+
+  // Get theme from our custom hook
+  const { theme, toggleTheme } = useThemeManager();
+
+  // Render loading or redirect state if user is not checked yet
+  if (!userChecked) {
+    return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  }
+  // If user is null after check, don't render dashboard (redirect will already have happened)
+  if (!user) {
+    return null;
+  }
+
   return (
-  <>
-    <NavMenu></NavMenu>
-    <div className="dashboard-container max-w-5xl mx-auto py-6 sm:py-8 px-4 sm:px-8">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:bg-gray-800 dark:border-gray-700">
-        <div>
-          <div className="text-sm text-gray-500 mb-1 dark:text-gray-400">WELCOME BACK</div>
-          <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">Manage your shortened links and track performance</p>
-        </div>
+    <>
+      <NavMenu />
+      <div className="dashboard-container max-w-5xl mx-auto py-6 sm:py-8 px-4 sm:px-8">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+          <div>
+            <div className="text-sm text-gray-500 mb-1 dark:text-gray-400">WELCOME BACK</div>
+            <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Dashboard</h1>
+            <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">Manage your shortened links and track performance</p>
+          </div>
         <div className="flex gap-3">
           <button
             className="btn-accent"
@@ -550,7 +609,7 @@ export default function DashboardPage() {
                   >
                     {theme === 'dark' ? (
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-yellow-500">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3 3 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
                       </svg>
                     ) : (
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-indigo-600">
@@ -586,23 +645,39 @@ export default function DashboardPage() {
           Refresh
         </button>
         {/* Tab Navigation */}
-        <div className="flex border-b mb-4">
+        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
           <button
-            className={`py-2 px-4 font-medium ${activeTab === 'active' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300'}`}
+            className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'active' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
             onClick={() => setActiveTab('active')}
           >
             Active Links
           </button>
           <button
-            className={`py-2 px-4 font-medium ${activeTab === 'archived' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300'}`}
+            className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'archived' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
             onClick={() => setActiveTab('archived')}
           >
             Archived Links
           </button>
+          <button
+            className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'all' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            onClick={() => setActiveTab('all')}
+          >
+            All Links
+          </button>
+        </div>
+        {/* Search Bar */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
+          <input
+            type="text"
+            className="w-full sm:w-80 md:w-96 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm"
+            placeholder="Search by title, creator, URL, or domain..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+          />
         </div>
         {/* Filter Controls */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-4 mb-6">
+          <div className="flex items-center gap-2">
             <label htmlFor="domainFilter" className="text-sm font-medium text-gray-800 dark:text-gray-300">
               Filter by domain:
             </label>
@@ -620,7 +695,7 @@ export default function DashboardPage() {
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-2">Sort by:</span>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Sort by:</span>
             <div className="flex items-center gap-1">
               <button 
                 onClick={() => {
@@ -733,24 +808,47 @@ export default function DashboardPage() {
                       </h3>
                       {/* Original creator username, clickable */}
                       {link.original_creator && link.original_creator.username && (
-                        <Link
-                          href={`/creator/${link.original_creator.id}`}
-                          className="text-xs text-orange-600 dark:text-orange-400 hover:underline font-medium ml-1"
-                        >
-                          @{link.original_creator.username} (original creator)
-                        </Link>
+                        <div className="mt-1">
+                          <Link
+                            href={`/creator/${link.original_creator.id}`}
+                            className="text-xs text-orange-600 dark:text-orange-400 hover:underline font-medium"
+                          >
+                            @{link.original_creator.username} (original creator)
+                          </Link>
+                        </div>
                       )}
-                      <a 
-                        href={link._linkType === 'ref' && link.utm_param ? `${origin}/${link.short_code}?utm_ref=${link.utm_param}` : `${origin}/${link.short_code}`}
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-sm text-orange-500 hover:text-orange-600"
-                      >
-                        {link._linkType === 'ref' && link.utm_param ? `${origin}/${link.short_code}?utm_ref=${link.utm_param}` : `${origin}/${link.short_code}`}
-                      </a>
+                      {/* Hide the URL with parameter if removed by creator */}
+                      {!(link._linkType === 'ref' && link.removed_by_creator) && (
+                        <a 
+                          href={link._linkType === 'ref' && link.utm_param ? `${origin}/${link.short_code}?utm_ref=${link.utm_param}` : `${origin}/${link.short_code}`}
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-sm text-orange-500 hover:text-orange-600"
+                        >
+                          {link._linkType === 'ref' && link.utm_param ? `${origin}/${link.short_code}?utm_ref=${link.utm_param}` : `${origin}/${link.short_code}`}
+                        </a>
+                      )}
                       {link._linkType === 'ref' ? (
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          Saved from creator
+                        <div className="flex items-center mb-2">
+                          {link.page_favicon && (
+                            <img src={link.page_favicon} alt="Favicon" className="h-5 w-5 mr-2 rounded" />
+                          )}
+                          <span className="font-semibold text-base text-gray-900 dark:text-gray-100 truncate max-w-xs">
+                            {link.page_title || link.original_url}
+                          </span>
+                          {activeTab === 'all' && (
+                            <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold
+                              ${link._linkType === 'ref' && link.removed_by_creator ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' :
+                                link._linkType === 'ref' && link.removed_by_user ? 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300' :
+                                link._linkType === 'original' && link.deleted ? 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300' :
+                                'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'}
+                            `}>
+                              {link._linkType === 'ref' && link.removed_by_creator ? 'Removed by Creator' :
+                                link._linkType === 'ref' && link.removed_by_user ? 'Archived' :
+                                link._linkType === 'original' && link.deleted ? 'Archived' :
+                                'Active'}
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -794,6 +892,16 @@ export default function DashboardPage() {
                     </p>
                   )}
                   
+                  {/* Chip for removed by creator (for reference links) */}
+                  {link._linkType === 'ref' && link.removed_by_creator && (
+                    <span className="inline-block bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300 px-2 py-0.5 rounded-full text-xs font-semibold mr-2 mb-2 relative group cursor-pointer">
+  Removed by Creator
+  <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 bg-gray-800 text-white text-xs rounded shadow-lg z-50 px-3 py-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity text-center after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-8 after:border-x-transparent after:border-b-transparent after:border-t-gray-800">
+    This link has been removed by the creator. You will no longer gain Qubits for clicks on this link.
+  </span>
+</span>
+                  )}
+                  
                   <div className="mt-2 text-xs text-gray-600 dark:text-gray-400 break-all">
                     {link.original_url}
                   </div>
@@ -802,7 +910,7 @@ export default function DashboardPage() {
                   <div className="mt-4 flex items-center">
                     <div className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-100 px-3 py-1 rounded-full flex items-center">
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672 13.684 16.6m0 0-2.51 2.225.569-9.47 5.227 7.917-3.286-.672Zm-7.518-.267A8.25 8.25 0 1 1 20.25 10.5M8.288 14.212A5.25 5.25 0 1 1 17.25 10.5" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672L13.684 16.6m0 0-2.51 2.225.569-9.47 5.227 7.917-3.286-.672Zm-7.518-.267A8.25 8.25 0 1 1 20.25 10.5M8.288 14.212A5.25 5.25 0 1 1 17.25 10.5" />
                       </svg>
                       <span className="font-medium">{link.click_count || 0} clicks</span>
                     </div>
@@ -836,26 +944,36 @@ export default function DashboardPage() {
                     </button>
                     
                     {/* Copy Button */}
-                    <button
-                      className="px-2 py-1 text-xs rounded-md flex items-center bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-                      onClick={async () => {
-                        const utmLink = origin && user?.id ? `${origin}/${link.short_code}?utm_ref=${user.id}` : `/${link.short_code}?utm_ref=${user?.id}`;
-                        await navigator.clipboard.writeText(utmLink);
-                        setCopiedLinkId(link.id);
-                        setTimeout(() => setCopiedLinkId(null), 1200);
-                      }}
-                      aria-label="Copy shortened link with UTM param"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75a2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" />
-                      </svg>
-                      Copy Link
-                      {copiedLinkId === link.id && (
-                        <span className="absolute ml-16 bg-gray-800 text-white text-xs rounded px-2 py-1 shadow z-30 whitespace-nowrap">
-                          Copied!
+                    <div className="relative group">
+                      <button
+                        className={`px-2 py-1 text-xs rounded-md flex items-center ${link._linkType === 'ref' && link.removed_by_creator ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+                        onClick={async () => {
+                          if (link._linkType === 'ref' && link.removed_by_creator) return;
+                          const utmLink = origin && user?.id ? `${origin}/${link.short_code}?utm_ref=${user.id}` : `/${link.short_code}?utm_ref=${user?.id}`;
+                          await navigator.clipboard.writeText(utmLink);
+                          setCopiedLinkId(link.id);
+                          setTimeout(() => setCopiedLinkId(null), 1200);
+                        }}
+                        aria-label="Copy shortened link with UTM param"
+                        disabled={link._linkType === 'ref' && link.removed_by_creator}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75a2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" />
+                        </svg>
+                        Copy Magic Link
+                        {copiedLinkId === link.id && (
+                          <span className="absolute ml-16 bg-gray-800 text-white text-xs rounded px-2 py-1 shadow z-30 whitespace-nowrap">
+                            Copied!
+                          </span>
+                        )}
+                      </button>
+                      {/* Tooltip for removed by creator */}
+                      {link._linkType === 'ref' && link.removed_by_creator && (
+                        <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 bg-gray-800 text-white text-xs rounded shadow-lg z-50 px-3 py-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity text-center after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-8 after:border-x-transparent after:border-b-transparent after:border-t-gray-800">
+                          This link has been removed by the creator. Clicks on this link will no longer earn you Qubits. Your old link will still direct to the original URL.
                         </span>
                       )}
-                    </button>
+                    </div>
                     
                     {/* Stats Button */}
                     <button
@@ -864,32 +982,38 @@ export default function DashboardPage() {
                       aria-label="View link statistics"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
                       </svg>
                       View Stats
                     </button>
                     
                     {/* Delete/Restore Button */}
-                    {activeTab === 'active' ? (
+                    {(activeTab === 'active' || (activeTab === 'all' && (
+                      (link._linkType === 'original' && !link.deleted) ||
+                      (link._linkType === 'ref' && !link.removed_by_user)
+                    ))) ? (
                       <div className="relative group">
                         <button
-                          onClick={() => handleArchive(link.id)}
+                          onClick={() => handleArchive(link.id, link.ref_id)}
                           className="px-2 py-1 text-xs rounded-md flex items-center bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50"
                           aria-label="Archive link"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9-.346 9m4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                          </svg>
-                          Archive
-                        </button>
-                        <div className="absolute z-10 invisible group-hover:visible bg-gray-800 text-white text-xs rounded-lg py-2 px-3 left-0 bottom-full mb-2 w-64 shadow-lg">
-                          Archiving your link will make it stop working. You will retain any Qubits earned from this link. You can restore links at any time.
-                          <div className="absolute top-full left-2 -mt-1 border-4 border-transparent border-t-gray-800"></div>
-                        </div>
+                        </svg>
+                        Archive
+                      </button>
+                      <div className="absolute z-10 invisible group-hover:visible bg-gray-800 text-white text-xs rounded-lg py-2 px-3 left-0 bottom-full mb-2 w-64 shadow-lg">
+                        Archiving your link will make it stop working. You will retain any Qubits earned from this link. You can restore links at any time.
+                        <div className="absolute top-full left-2 -mt-1 border-4 border-transparent border-t-gray-800"></div>
                       </div>
-                    ) : (
+                    </div>
+                    ) : ((activeTab === 'archived' || (activeTab === 'all' && (
+                      (link._linkType === 'original' && link.deleted) ||
+                      (link._linkType === 'ref' && link.removed_by_user)
+                    ))) && (
                       <button
-                        onClick={() => handleRestore(link.id)}
+                        onClick={() => handleRestore(link.id, link.ref_id, link._linkType)}
                         className="px-2 py-1 text-xs rounded-md flex items-center bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-300 dark:hover:bg-green-900/50"
                         aria-label="Restore link"
                       >
@@ -898,7 +1022,7 @@ export default function DashboardPage() {
                         </svg>
                         Restore
                       </button>
-                    )}
+                    ))}
                   </div>
                 </div>
               </div>
@@ -907,6 +1031,6 @@ export default function DashboardPage() {
         </div>
       </div>
     </div>
-    </>
+  </>
   );
 }

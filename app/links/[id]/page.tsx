@@ -243,7 +243,17 @@ export default function LinkDetailsPage() {
             {link.page_favicon && (
               <img src={link.page_favicon} alt={`${link.page_title || link.short_code} favicon`} className="w-6 h-6 inline-block mr-2" />
             )}
-            <h2 className="text-2xl font-semibold inline-block">{link.page_title || link.short_code}</h2>
+            <h2 className="text-2xl font-semibold inline-block">
+  {link.page_title || link.short_code}
+  {link.deleted && (
+    <span className="inline-block bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300 px-2 py-0.5 rounded-full text-xs font-semibold mr-2 mb-2 relative group cursor-pointer ml-2">
+      Removed by Creator
+      <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 bg-gray-800 text-white text-xs rounded shadow-lg z-50 px-3 py-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity text-center after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-8 after:border-x-transparent after:border-b-transparent after:border-t-gray-800">
+        This link has been removed by the creator. You will no longer gain Qubits for clicks on this link.
+      </span>
+    </span>
+  )}
+</h2>
             {link.page_description && (
               <p className="mt-2 text-gray-600 dark:text-gray-400">{link.page_description}</p>
             )}

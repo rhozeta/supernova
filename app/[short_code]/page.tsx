@@ -22,7 +22,8 @@ export default async function ShortCodePage({ params }: { params: Params }) {
     return redirect('/404');
   }
   if (link.deleted === true) {
-    return redirect('/login');
+    // If the link is deleted, redirect straight to the original URL (for link_refs and any case)
+    return redirect(link.original_url);
   }
 
   // Parse utm_ref from the short link (if present)

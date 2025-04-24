@@ -34,7 +34,7 @@ export default function DashboardPage() {
   }
 
   const [username, setUsername] = useState('');
-  const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
+  const [activeTab, setActiveTab] = useState<'active' | 'archived' | 'all'>('active');
   const [domainFilter, setDomainFilter] = useState<string>('all');
   const [availableDomains, setAvailableDomains] = useState<string[]>([]);
   const [refreshingMetadata, setRefreshingMetadata] = useState(false);
@@ -438,7 +438,7 @@ export default function DashboardPage() {
 
   return (
   <>
-    <NavMenu></NavMenu>
+    <NavMenu />
     <div className="dashboard-container max-w-5xl mx-auto py-6 sm:py-8 px-4 sm:px-8">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:bg-gray-800 dark:border-gray-700">
         <div>
@@ -546,7 +546,7 @@ export default function DashboardPage() {
                   >
                     {theme === 'dark' ? (
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-yellow-500">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
                       </svg>
                     ) : (
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-indigo-600">
@@ -577,7 +577,7 @@ export default function DashboardPage() {
               type="text"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              className="flex-1 px-3 py-2 rounded border border-gray-300 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:bg-gray-800 dark:text-white"
+              className="flex-1 px-3 py-2 rounded border border-gray-300 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white dark:bg-gray-800 dark:text-white"
               placeholder="Paste a long URL to shorten..."
               required
             />
@@ -603,23 +603,29 @@ export default function DashboardPage() {
           Refresh
         </button>
         {/* Tab Navigation */}
-        <div className="flex border-b mb-4">
+        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
           <button
-            className={`py-2 px-4 font-medium ${activeTab === 'active' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300'}`}
+            className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'active' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
             onClick={() => setActiveTab('active')}
           >
             Active Links
           </button>
           <button
-            className={`py-2 px-4 font-medium ${activeTab === 'archived' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300'}`}
+            className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'archived' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
             onClick={() => setActiveTab('archived')}
           >
             Archived Links
           </button>
+          <button
+            className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'all' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            onClick={() => setActiveTab('all')}
+          >
+            All Links
+          </button>
         </div>
         {/* Filter Controls */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-4 mb-6">
+          <div className="flex items-center gap-2">
             <label htmlFor="domainFilter" className="text-sm font-medium text-gray-800 dark:text-gray-300">
               Filter by domain:
             </label>
@@ -637,7 +643,7 @@ export default function DashboardPage() {
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-2">Sort by:</span>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Sort by:</span>
             <div className="flex items-center gap-1">
               <button 
                 onClick={() => {
@@ -690,7 +696,7 @@ export default function DashboardPage() {
         </div>
         
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
-          <h2 className="text-xl font-bold">{activeTab === 'active' ? 'Your Links' : 'Archived Links'}</h2>
+          <h2 className="text-xl font-bold">{activeTab === 'active' ? 'Your Links' : activeTab === 'archived' ? 'Archived Links' : 'All Links'}</h2>
         </div>
         
         <div className="space-y-4">
@@ -915,6 +921,6 @@ export default function DashboardPage() {
         </div>
       </div>
     </div>
-    </>
+  </>
   );
 }
