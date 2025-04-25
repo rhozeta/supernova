@@ -87,6 +87,7 @@ export default function CreatorProfilePage() {
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [loadingFollow, setLoadingFollow] = useState(false);
+  const [unfollowError, setUnfollowError] = useState("");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -126,20 +127,40 @@ export default function CreatorProfilePage() {
       fetchProfileAndLinks();
       // Check follow status
       const checkFollowing = async () => {
-        const { data: sessionData } = await supabase.auth.getUser();
-        const followerId = sessionData?.user?.id;
-        if (!followerId || followerId === id) return;
+        if (!currentUserId || !id || currentUserId === id) return;
         const { data, error } = await supabase
           .from('follows')
-          .select('*')
-          .eq('follower_id', followerId)
+          .select('id')
+          .eq('follower_id', currentUserId)
           .eq('creator_id', id)
-          .single();
-        setIsFollowing(!error && !!data);
+          .maybeSingle();
+        setIsFollowing(!!data && !error);
       };
       checkFollowing();
     }
-  }, [id]);
+  }, [id, currentUserId]);
+
+  // Unfollow handler
+  async function handleUnfollow() {
+    setLoadingFollow(true);
+    setUnfollowError("");
+    if (!currentUserId || !id) {
+      setUnfollowError("User not found");
+      setLoadingFollow(false);
+      return;
+    }
+    const { error } = await supabase
+      .from('follows')
+      .delete()
+      .eq('follower_id', currentUserId)
+      .eq('creator_id', id);
+    setLoadingFollow(false);
+    if (!error) {
+      setIsFollowing(false);
+    } else {
+      setUnfollowError("Error unfollowing creator");
+    }
+  }
 
   const handleFollow = async () => {
     setLoadingFollow(true);
@@ -161,16 +182,32 @@ export default function CreatorProfilePage() {
     <NavMenu></NavMenu>
     <div className="max-w-3xl mx-auto py-12 px-4">
       <h1 className="text-3xl font-bold mb-2">{profile.username}</h1>
+      {isFollowing && currentUserId && currentUserId !== id && (
+        <span className="inline-block mb-2 px-3 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200">Following</span>
+      )}
       <div className="text-gray-500 dark:text-gray-400 mb-6">Content Creator</div>
-      {/* Follow button, only if not own profile */}
+      {/* Follow/Unfollow button logic */}
       {currentUserId && currentUserId !== id && (
-        <button
-          onClick={handleFollow}
-          disabled={isFollowing || loadingFollow}
-          className={`mb-6 px-6 py-2 rounded-lg font-semibold ${isFollowing ? 'bg-green-500 text-white' : 'btn-accent'}`}
-        >
-          {isFollowing ? 'Following' : loadingFollow ? 'Following...' : 'Follow'}
-        </button>
+        isFollowing ? (
+          <button
+            onClick={handleUnfollow}
+            disabled={loadingFollow}
+            className="px-4 py-2 rounded-md font-semibold text-white bg-gray-400 hover:bg-gray-500"
+          >
+            {loadingFollow ? 'Unfollowing...' : 'Unfollow'}
+          </button>
+        ) : (
+          <button
+            onClick={handleFollow}
+            disabled={loadingFollow}
+            className="px-4 py-2 rounded-md font-semibold text-white bg-orange-500 hover:bg-orange-600"
+          >
+            {loadingFollow ? 'Following...' : 'Follow'}
+          </button>
+        )
+      )}
+      {unfollowError && (
+        <div className="text-red-500 mt-2">{unfollowError}</div>
       )}
       <h2 className="text-xl font-bold mb-4">Links by this Creator</h2>
       {links.length === 0 ? (

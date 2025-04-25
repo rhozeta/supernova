@@ -9,9 +9,32 @@ import { fetchMetadata } from '../../lib/fetchMetadata';
 import { updateAllUserLinkMetadata, updateLinkMetadata } from '../../lib/updateLinkMetadata';
 import NavMenu from '../components/NavMenu';
 
+interface Link {
+  id: string;
+  short_code: string;
+  original_url: string;
+  created_at: string;
+  click_count: number;
+  metadata?: {
+    title?: string;
+    description?: string;
+    image?: string;
+    favicon?: string;
+  };
+  page_title?: string;
+  page_description?: string;
+  page_image?: string;
+  page_favicon?: string;
+  creator?: {
+    id: string;
+    username: string;
+  };
+  deleted: boolean;
+}
+
 export default function DashboardPage() {
-  const [links, setLinks] = useState<any[]>([]);
-  const [allLinks, setAllLinks] = useState<any[]>([]);
+  const [links, setLinks] = useState<Link[]>([]);
+  const [allLinks, setAllLinks] = useState<Link[]>([]);
   const [sortBy, setSortBy] = useState<'date' | 'clicks'>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
@@ -39,6 +62,33 @@ export default function DashboardPage() {
   const [availableDomains, setAvailableDomains] = useState<string[]>([]);
   const [refreshingMetadata, setRefreshingMetadata] = useState(false);
   const router = useRouter();
+
+  // Search functionality
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredLinks, setFilteredLinks] = useState<Link[]>(links);
+  
+  // Filter links based on search term
+  useEffect(() => {
+    if (searchTerm.trim() === '') {
+      setFilteredLinks(links);
+    } else {
+      const term = searchTerm.toLowerCase();
+      const filtered = links.filter(link => {
+        const pageTitle = (link.page_title || link.metadata?.title || '').toLowerCase();
+        const originalUrl = (link.original_url || '').toLowerCase();
+        const shortCode = (link.short_code || '').toLowerCase();
+        const description = (link.metadata?.description || '').toLowerCase();
+        
+        return (
+          pageTitle.includes(term) ||
+          originalUrl.includes(term) ||
+          shortCode.includes(term) ||
+          description.includes(term)
+        );
+      });
+      setFilteredLinks(filtered);
+    }
+  }, [searchTerm, links]);
 
   useEffect(() => {
     const getUser = async () => {
@@ -130,7 +180,6 @@ export default function DashboardPage() {
   };
 
   // Apply domain filter and sorting to links (no deleted filter here)
-  const [filteredLinks, setFilteredLinks] = useState<any[]>([]);
   useEffect(() => {
     if (links.length > 0) {
       let result = [...links];
@@ -440,10 +489,10 @@ export default function DashboardPage() {
   <>
     <NavMenu />
     <div className="dashboard-container max-w-5xl mx-auto py-6 sm:py-8 px-4 sm:px-8">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:bg-gray-800 dark:border-gray-700">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8 bg-gray-800 p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
         <div>
           <div className="text-sm text-gray-500 mb-1 dark:text-gray-400">WELCOME BACK</div>
-          <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Dashboard</h1>
+          <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Creator Dashboard</h1>
           <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">Manage your shortened links and track performance</p>
         </div>
         <div className="flex gap-3">
@@ -488,10 +537,10 @@ export default function DashboardPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4" onClick={() => setProfileOpen(false)}>
           <div className="modal-glass w-full max-w-md relative bg-white dark:bg-gray-800" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4 sm:mb-6">
-              <h2 className="text-xl sm:text-2xl font-bold">Profile Details</h2>
+              <h2 className="text-xl font-bold">Profile Details</h2>
               <button 
                 onClick={() => setProfileOpen(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                className="text-gray-400 hover:text-gray-600"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -532,30 +581,6 @@ export default function DashboardPage() {
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${contentCreator ? 'translate-x-6' : 'translate-x-1'}`}></span>
                 </button>
               </div>
-              <div className="border-b pb-3">
-                <div className="text-sm text-gray-600 dark:text-gray-400">Theme</div>
-                <div className="flex items-center justify-between mt-1">
-                  <div className="font-medium">{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</div>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleTheme();
-                    }}
-                    className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                    aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-                  >
-                    {theme === 'dark' ? (
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-yellow-500">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                      </svg>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-indigo-600">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A7.488 7.488 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-              </div>
             </div>
             
             <button
@@ -593,17 +618,8 @@ export default function DashboardPage() {
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700 relative">
-        {/* Refresh Button Top Right */}
-        <button
-          className="btn-secondary absolute top-4 right-4 z-10 px-4 py-2 mb-4"
-          onClick={() => fetchLinks()}
-          aria-label="Refresh links"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-1 inline-block"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
-          Refresh
-        </button>
         {/* Tab Navigation */}
-        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
+        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4 items-center gap-2">
           <button
             className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'active' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
             onClick={() => setActiveTab('active')}
@@ -622,6 +638,40 @@ export default function DashboardPage() {
           >
             All Links
           </button>
+          <button
+            className="ml-auto py-2 px-4 text-sm font-medium focus:outline-none border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 flex items-center"
+            onClick={() => fetchLinks()}
+            aria-label="Refresh links"
+            style={{height: '40px'}} // Ensures alignment with tab buttons
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-1 inline-block">
+  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5A9 9 0 1 1 12 21v-3m0 3l-3-3m3 3l3-3" />
+</svg>
+            Refresh
+          </button>
+        </div>
+
+        {/* Search Bar */}
+        <div className="mb-6">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search links..."
+              className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
         {/* Filter Controls */}
         <div className="flex flex-wrap items-center gap-4 mb-6">
@@ -744,7 +794,7 @@ export default function DashboardPage() {
                     className="w-4 h-4 text-orange-500"
                     style={{ display: (link.page_favicon && typeof link.page_favicon === 'string') ? 'none' : 'block' }}
                   >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 1-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 1 1.242 7.244" />
                   </svg>
                 </div>
                 
@@ -861,7 +911,9 @@ export default function DashboardPage() {
                       aria-label="Copy shortened link with UTM param"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75a2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" />
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75a2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 014 6.108H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" />
+                      </svg>
                       </svg>
                       Copy Link
                       {copiedLinkId === link.id && (
@@ -878,7 +930,7 @@ export default function DashboardPage() {
                       aria-label="View link statistics"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
                       </svg>
                       View Stats
                     </button>

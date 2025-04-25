@@ -115,6 +115,30 @@ export default function DashboardPage() {
     setAvailableDomains(uniqueDomains);
   };
 
+  // --- LinkRefs click counts ---
+  const [linkRefsClickCounts, setLinkRefsClickCounts] = useState<{[original_link_id: string]: number}>({});
+
+  // Fetch click counts from link_refs for this user
+  useEffect(() => {
+    async function fetchLinkRefsClicks() {
+      if (!user?.id) return;
+      const { data, error } = await supabase
+        .from('link_refs')
+        .select('original_link_id, click_count')
+        .eq('user_id', user.id);
+      if (!error && data) {
+        // Aggregate click counts by original_link_id
+        const counts: {[original_link_id: string]: number} = {};
+        data.forEach((ref: any) => {
+          if (!counts[ref.original_link_id]) counts[ref.original_link_id] = 0;
+          counts[ref.original_link_id] += ref.click_count || 0;
+        });
+        setLinkRefsClickCounts(counts);
+      }
+    }
+    fetchLinkRefsClicks();
+  }, [user, links]);
+
   // Apply domain filter and sorting to links (no deleted filter here)
   const [filteredLinks, setFilteredLinks] = useState<any[]>([]);
   useEffect(() => {
@@ -503,7 +527,7 @@ export default function DashboardPage() {
     <>
       <NavMenu />
       <div className="dashboard-container max-w-5xl mx-auto py-6 sm:py-8 px-4 sm:px-8">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 bg-gray-800 sm:mb-8  p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
           <div>
             <div className="text-sm text-gray-500 mb-1 dark:text-gray-400">WELCOME BACK</div>
             <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Dashboard</h1>
@@ -595,30 +619,6 @@ export default function DashboardPage() {
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${contentCreator ? 'translate-x-6' : 'translate-x-1'}`}></span>
                 </button>
               </div>
-              <div className="border-b pb-3">
-                <div className="text-sm text-gray-600 dark:text-gray-400">Theme</div>
-                <div className="flex items-center justify-between mt-1">
-                  <div className="font-medium">{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</div>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleTheme();
-                    }}
-                    className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                    aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-                  >
-                    {theme === 'dark' ? (
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-yellow-500">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3 3 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
-                      </svg>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-indigo-600">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A7.488 7.488 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-              </div>
             </div>
             
             <button
@@ -635,17 +635,8 @@ export default function DashboardPage() {
      
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700 relative">
-        {/* Refresh Button Top Right */}
-        <button
-          className="btn-secondary absolute top-4 right-4 z-10 px-4 py-2 mb-4"
-          onClick={() => fetchLinks()}
-          aria-label="Refresh links"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-1 inline-block"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
-          Refresh
-        </button>
         {/* Tab Navigation */}
-        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
+        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4 items-center gap-2">
           <button
             className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'active' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
             onClick={() => setActiveTab('active')}
@@ -664,12 +655,21 @@ export default function DashboardPage() {
           >
             All Links
           </button>
+          <button
+            className="ml-auto py-2 px-4 text-sm font-medium focus:outline-none border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 flex items-center"
+            onClick={() => fetchLinks()}
+            aria-label="Refresh links"
+            style={{height: '40px'}} // Ensures alignment with tab buttons
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-1 inline-block"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+            Refresh
+          </button>
         </div>
         {/* Search Bar */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
+        <div className="mb-6">
           <input
             type="text"
-            className="w-full sm:w-80 md:w-96 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm"
             placeholder="Search by title, creator, URL, or domain..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
@@ -912,7 +912,7 @@ export default function DashboardPage() {
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672L13.684 16.6m0 0-2.51 2.225.569-9.47 5.227 7.917-3.286-.672Zm-7.518-.267A8.25 8.25 0 1 1 20.25 10.5M8.288 14.212A5.25 5.25 0 1 1 17.25 10.5" />
                       </svg>
-                      <span className="font-medium">{link.click_count || 0} clicks</span>
+                      <span className="font-medium">{linkRefsClickCounts[link.id] || 0} clicks</span>
                     </div>
                   </div>
                   
@@ -958,7 +958,7 @@ export default function DashboardPage() {
                         disabled={link._linkType === 'ref' && link.removed_by_creator}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75a2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75a2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 014 6.108H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" />
                         </svg>
                         Copy Magic Link
                         {copiedLinkId === link.id && (

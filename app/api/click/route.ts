@@ -170,7 +170,7 @@ export async function POST(req: NextRequest) {
       // Get the link details to find original_url and creator_id
       const { data: clickedLink, error: fetchLinkError } = await supabase
         .from('links')
-        .select('id, original_url, creator_id, user_id')
+        .select('id, original_url, creator_id, user_id, short_code')
         .eq('id', link_id)
         .single();
       if (!fetchLinkError && clickedLink) {
@@ -189,6 +189,35 @@ export async function POST(req: NextRequest) {
               .from('links')
               .update({ click_count: (origLink.click_count || 0) + 1 })
               .eq('id', origLink.id);
+          }
+          // Also increment click_count in link_refs if this is a reference link
+          // Try to find the link_ref by original_link_id or short_code
+          let refRow = null;
+          let refError = null;
+          // Try by original_link_id
+          const refByOrig = await supabase
+            .from('link_refs')
+            .select('id, click_count')
+            .eq('original_link_id', clickedLink.id)
+            .maybeSingle();
+          if (!refByOrig.error && refByOrig.data && refByOrig.data.id) {
+            refRow = refByOrig.data;
+          } else {
+            // Try by short_code
+            const refByShort = await supabase
+              .from('link_refs')
+              .select('id, click_count')
+              .eq('short_code', clickedLink.short_code)
+              .maybeSingle();
+            if (!refByShort.error && refByShort.data && refByShort.data.id) {
+              refRow = refByShort.data;
+            }
+          }
+          if (refRow && refRow.id) {
+            await supabase
+              .from('link_refs')
+              .update({ click_count: (refRow.click_count || 0) + 1 })
+              .eq('id', refRow.id);
           }
         }
       }
