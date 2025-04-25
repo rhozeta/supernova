@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
@@ -28,8 +28,12 @@ export default function DashboardPage() {
   const [username, setUsername] = useState('');
   const [activeTab, setActiveTab] = useState<'active' | 'archived' | 'all'>('active');
   const [domainFilter, setDomainFilter] = useState<string>('all');
+  const [creatorFilter, setCreatorFilter] = useState<string>('all');
   const [availableDomains, setAvailableDomains] = useState<string[]>([]);
+  const [availableCreators, setAvailableCreators] = useState<string[]>([]);
   const [refreshingMetadata, setRefreshingMetadata] = useState(false);
+  const [refreshingLinkIds, setRefreshingLinkIds] = useState<string[]>([]);
+  const [expandedLinks, setExpandedLinks] = useState<Record<string, boolean>>({});
   const router = useRouter();
 
   // Fetch user on mount before rendering
@@ -43,6 +47,15 @@ export default function DashboardPage() {
       } else {
         setUser(user);
         setUserChecked(true);
+        
+        // Get total clicks from link_refs
+        const { count } = await supabase
+          .from('link_refs')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id);
+        
+        setTotalClicks(count || 0);
+        
         const { data, error } = await supabase
           .from('profiles')
           .select('content_creator')
@@ -115,6 +128,13 @@ export default function DashboardPage() {
     setAvailableDomains(uniqueDomains);
   };
 
+  // Update available creators for filtering
+  const updateAvailableCreators = (links: any[]) => {
+    const creators = links.map(link => link.original_creator?.username);
+    const uniqueCreators = ['all', ...new Set(creators)];
+    setAvailableCreators(uniqueCreators);
+  };
+
   // --- LinkRefs click counts ---
   const [linkRefsClickCounts, setLinkRefsClickCounts] = useState<{[original_link_id: string]: number}>({});
 
@@ -140,66 +160,58 @@ export default function DashboardPage() {
   }, [user, links]);
 
   // Apply domain filter and sorting to links (no deleted filter here)
-  const [filteredLinks, setFilteredLinks] = useState<any[]>([]);
-  useEffect(() => {
-    if (links.length > 0) {
-      let result = [...links];
-      // Apply domain filter
-      if (domainFilter !== 'all') {
-        result = result.filter(link => extractDomain(link.original_url) === domainFilter);
-      }
-      // Filter by active/archived tab
-      if (activeTab === 'active') {
-        result = result.filter(link => {
-          if (link._linkType === 'ref') {
-            return !link.removed_by_user;
+  const filteredLinks = useMemo(() => {
+    return links
+      .filter((link: any) => {
+        // Search filter
+        if (searchTerm) {
+          const searchLower = searchTerm.toLowerCase();
+          const matchesTitle = link.page_title?.toLowerCase().includes(searchLower);
+          const matchesUrl = link.original_url?.toLowerCase().includes(searchLower);
+          const matchesCreator = link.original_creator?.username?.toLowerCase().includes(searchLower);
+          const matchesDomain = link.original_url?.toLowerCase().includes(searchLower);
+          const matchesCode = link.short_code?.toLowerCase().includes(searchLower);
+          
+          if (!(matchesTitle || matchesUrl || matchesCreator || matchesDomain || matchesCode)) {
+            return false;
           }
-          return !link.deleted;
-        });
-      } else if (activeTab === 'archived') {
-        result = result.filter(link => {
-          if (link._linkType === 'ref') {
-            return link.removed_by_user;
+        }
+
+        // Domain filter
+        if (domainFilter !== 'all') {
+          try {
+            const domain = new URL(link.original_url).hostname.replace('www.', '');
+            if (domain !== domainFilter) return false;
+          } catch {
+            return false;
           }
-          return link.deleted;
-        });
-      } else if (activeTab === 'all') {
-        // Do not filter by deleted/archived status, show all links
-        // Only domain filter and search filter apply
-      }
-      // Apply search filter (broad, case-insensitive)
-      if (searchTerm.trim() !== '') {
-        const term = searchTerm.toLowerCase();
-        result = result.filter(link => {
-          const pageTitle = (link.page_title || '').toLowerCase();
-          const creatorUsername = (link.original_creator?.username || link.user?.username || '').toLowerCase();
-          const originalUrl = (link.original_url || '').toLowerCase();
-          const domain = extractDomain(link.original_url).toLowerCase();
-          return (
-            pageTitle.includes(term) ||
-            creatorUsername.includes(term) ||
-            originalUrl.includes(term) ||
-            domain.includes(term)
-          );
-        });
-      }
-      // Apply sorting
-      if (sortBy === 'date') {
-        result.sort((a, b) => {
+        }
+
+        // Creator filter
+        if (creatorFilter !== 'all') {
+          return link.original_creator?.username === creatorFilter;
+        }
+
+        // Active/archived filter
+        if (activeTab === 'active') {
+          return link._linkType === 'ref' ? !link.removed_by_user : !link.deleted;
+        } else if (activeTab === 'archived') {
+          return link._linkType === 'ref' ? link.removed_by_user : link.deleted;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'date') {
           const dateA = new Date(a.created_at).getTime();
           const dateB = new Date(b.created_at).getTime();
           return sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
-        });
-      } else if (sortBy === 'clicks') {
-        result.sort((a, b) => {
-          return sortDirection === 'asc' ? (a.click_count || 0) - (b.click_count || 0) : (b.click_count || 0) - (a.click_count || 0);
-        });
-      }
-      setFilteredLinks(result);
-    } else {
-      setFilteredLinks([]);
-    }
-  }, [links, domainFilter, sortBy, sortDirection, activeTab, searchTerm]);
+        } else {
+          const clicksA = linkRefsClickCounts[a.id] || 0;
+          const clicksB = linkRefsClickCounts[b.id] || 0;
+          return sortDirection === 'asc' ? clicksA - clicksB : clicksB - clicksA;
+        }
+      });
+  }, [links, searchTerm, domainFilter, creatorFilter, activeTab, sortBy, sortDirection, linkRefsClickCounts]);
 
   const fetchLinks = async () => {
     if (!user || !user.id) return;
@@ -241,6 +253,7 @@ export default function DashboardPage() {
     setLinks(allForDisplay);
     setAllLinks(ownLinks || []);
     updateAvailableDomains(ownLinks || []);
+    updateAvailableCreators(allForDisplay);
     fetchTotalClicks();
   };
 
@@ -259,14 +272,14 @@ export default function DashboardPage() {
   // Fetch the total click count for all user's links
   const fetchTotalClicks = async () => {
     if (!user || !user.id) return;
-    // Count clicks from ALL links, regardless of deleted status
+    // Count clicks from ALL link_refs for this user
     const { data, error } = await supabase
-      .from('links')
+      .from('link_refs')
       .select('click_count')
       .eq('user_id', user.id);
     
     if (!error && data) {
-      const total = data.reduce((sum, link) => sum + (link.click_count || 0), 0);
+      const total = data.reduce((sum, ref) => sum + (ref.click_count || 0), 0);
       setTotalClicks(total);
     }
   };
@@ -463,8 +476,6 @@ export default function DashboardPage() {
   };
   
   // Function to refresh metadata for a single link
-  const [refreshingLinkIds, setRefreshingLinkIds] = useState<string[]>([]);
-  
   const handleRefreshLinkMetadata = async (linkId: string) => {
     if (refreshingLinkIds.includes(linkId)) return;
     
@@ -527,7 +538,7 @@ export default function DashboardPage() {
     <>
       <NavMenu />
       <div className="dashboard-container max-w-5xl mx-auto py-6 sm:py-8 px-4 sm:px-8">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 bg-gray-800 sm:mb-8  p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8 bg-gray-800 sm:mb-8  p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
           <div>
             <div className="text-sm text-gray-500 mb-1 dark:text-gray-400">WELCOME BACK</div>
             <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Dashboard</h1>
@@ -636,24 +647,33 @@ export default function DashboardPage() {
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700 relative">
         {/* Tab Navigation */}
-        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4 items-center gap-2">
+        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
           <button
-            className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'active' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            className={`py-2 px-4 font-medium flex items-center gap-2 ${activeTab === 'active' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300'}`}
             onClick={() => setActiveTab('active')}
           >
             Active Links
+            <span className="ml-1 inline-block min-w-[1.5em] px-1 py-0.5 rounded-full bg-orange-100 text-orange-600 text-xs font-semibold dark:bg-orange-900 dark:text-orange-200">
+              {links.filter(l => (l._linkType === 'ref' ? !l.removed_by_user : !l.deleted)).length}
+            </span>
           </button>
           <button
-            className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'archived' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            className={`py-2 px-4 font-medium flex items-center gap-2 ${activeTab === 'archived' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300'}`}
             onClick={() => setActiveTab('archived')}
           >
             Archived Links
+            <span className="ml-1 inline-block min-w-[1.5em] px-1 py-0.5 rounded-full bg-gray-200 text-gray-700 text-xs font-semibold dark:bg-gray-700 dark:text-gray-300">
+              {links.filter(l => (l._linkType === 'ref' ? l.removed_by_user : l.deleted)).length}
+            </span>
           </button>
           <button
-            className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'all' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            className={`py-2 px-4 font-medium flex items-center gap-2 ${activeTab === 'all' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300'}`}
             onClick={() => setActiveTab('all')}
           >
             All Links
+            <span className="ml-1 inline-block min-w-[1.5em] px-1 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold dark:bg-blue-900 dark:text-blue-200">
+              {links.length}
+            </span>
           </button>
           <button
             className="ml-auto py-2 px-4 text-sm font-medium focus:outline-none border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 flex items-center"
@@ -690,6 +710,23 @@ export default function DashboardPage() {
               {availableDomains.map((domain) => (
                 <option key={domain} value={domain}>
                   {domain === 'all' ? 'All Domains' : domain}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="creatorFilter" className="text-sm font-medium text-gray-800 dark:text-gray-300">
+              Filter by creator:
+            </label>
+            <select
+              id="creatorFilter"
+              value={creatorFilter}
+              onChange={(e) => setCreatorFilter(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white text-gray-800 dark:bg-gray-700 dark:border-gray-600 dark:text-white w-full sm:w-auto"
+            >
+              {availableCreators.map((creator) => (
+                <option key={creator} value={creator}>
+                  {creator === 'all' ? 'All Creators' : `@${creator}`}
                 </option>
               ))}
             </select>
@@ -765,10 +802,31 @@ export default function DashboardPage() {
                   Try changing your domain filter
                 </div>
               )}
+              {creatorFilter !== 'all' && (
+                <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                  Try changing your creator filter
+                </div>
+              )}
             </div>
           ) : (
             filteredLinks.map(link => (
               <div key={link.ref_id || link.id} className="p-3 sm:p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 relative hover:shadow-md transition-shadow">
+                {/* Expand/Collapse Toggle Button */}
+                <button
+                  className="absolute top-2 right-2 z-10 p-1 rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700"
+                  onClick={() => setExpandedLinks(prev => ({ ...prev, [link.ref_id || link.id]: !prev[link.ref_id || link.id] }))}
+                  aria-label={expandedLinks[link.ref_id || link.id] ? 'Collapse card' : 'Expand card'}
+                >
+                  {expandedLinks[link.ref_id || link.id] ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12H6" />
+                    </svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v12m6-6H6" />
+                    </svg>
+                  )}
+                </button>
                 {/* Activity Icon */}
                 <div className="absolute left-3 sm:left-4 top-3 sm:top-4 flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-orange-100 flex items-center justify-center">
                   {link.page_favicon && typeof link.page_favicon === 'string' ? (
@@ -806,118 +864,68 @@ export default function DashboardPage() {
                       <h3 className="font-medium text-gray-900 dark:text-white">
                         {link.page_title && typeof link.page_title === 'string' && link.page_title !== 'Loading...' ? link.page_title : link.short_code}
                       </h3>
-                      {/* Original creator username, clickable */}
+                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                       {link.original_creator && link.original_creator.username && (
-                        <div className="mt-1">
                           <Link
                             href={`/creator/${link.original_creator.id}`}
-                            className="text-xs text-orange-600 dark:text-orange-400 hover:underline font-medium"
+                            className="text-orange-600 dark:text-orange-400 hover:underline font-medium"
                           >
-                            @{link.original_creator.username} (original creator)
+                            @{link.original_creator.username} 
                           </Link>
-                        </div>
-                      )}
-                      {/* Hide the URL with parameter if removed by creator */}
-                      {!(link._linkType === 'ref' && link.removed_by_creator) && (
-                        <a 
-                          href={link._linkType === 'ref' && link.utm_param ? `${origin}/${link.short_code}?utm_ref=${link.utm_param}` : `${origin}/${link.short_code}`}
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-sm text-orange-500 hover:text-orange-600"
-                        >
-                          {link._linkType === 'ref' && link.utm_param ? `${origin}/${link.short_code}?utm_ref=${link.utm_param}` : `${origin}/${link.short_code}`}
-                        </a>
-                      )}
-                      {link._linkType === 'ref' ? (
-                        <div className="flex items-center mb-2">
-                          {link.page_favicon && (
-                            <img src={link.page_favicon} alt="Favicon" className="h-5 w-5 mr-2 rounded" />
-                          )}
-                          <span className="font-semibold text-base text-gray-900 dark:text-gray-100 truncate max-w-xs">
-                            {link.page_title || link.original_url}
-                          </span>
-                          {activeTab === 'all' && (
-                            <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold
-                              ${link._linkType === 'ref' && link.removed_by_creator ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' :
-                                link._linkType === 'ref' && link.removed_by_user ? 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300' :
-                                link._linkType === 'original' && link.deleted ? 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300' :
-                                'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'}
-                            `}>
-                              {link._linkType === 'ref' && link.removed_by_creator ? 'Removed by Creator' :
-                                link._linkType === 'ref' && link.removed_by_user ? 'Archived' :
-                                link._linkType === 'original' && link.deleted ? 'Archived' :
-                                'Active'}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          Your original link
-                        </div>
-                      )}
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {link.created_at ? new Date(link.created_at).toLocaleString() : 'N/A'}
+                        )}
+                        {link.created_at && new Date(link.created_at).toLocaleString()}
+                       
+                      </div>
                     </div>
                   </div>
-                  
-                  {/* Preview Image */}
-                  {link.page_image && typeof link.page_image === 'string' && link.page_image.trim() !== '' && (
-                    <a 
-                      href={link.original_url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="mt-3 inline-block rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 hover:opacity-90 transition-opacity"
-                      style={{ maxWidth: '200px' }}
-                    >
-                      <img 
-                        src={link.page_image} 
-                        alt="Preview" 
-                        className="w-full h-auto object-contain" 
-                        style={{ maxHeight: '120px' }}
-                        onError={(e) => {
-                          // Hide image if it fails to load
-                          const img = e.currentTarget as HTMLImageElement;
-                          const parent = img.parentElement;
-                          if (parent) parent.style.display = 'none';
-                        }}
-                      />
-                    </a>
-                  )}
-                  
-                  {/* Description */}
-                  {link.page_description && typeof link.page_description === 'string' && link.page_description.trim() !== '' && (
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
-                      {link.page_description}
-                    </p>
-                  )}
-                  
-                  {/* Chip for removed by creator (for reference links) */}
-                  {link._linkType === 'ref' && link.removed_by_creator && (
-                    <span className="inline-block bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300 px-2 py-0.5 rounded-full text-xs font-semibold mr-2 mb-2 relative group cursor-pointer">
-  Removed by Creator
-  <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 bg-gray-800 text-white text-xs rounded shadow-lg z-50 px-3 py-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity text-center after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-8 after:border-x-transparent after:border-b-transparent after:border-t-gray-800">
-    This link has been removed by the creator. You will no longer gain Qubits for clicks on this link.
-  </span>
-</span>
-                  )}
-                  
-                  <div className="mt-2 text-xs text-gray-600 dark:text-gray-400 break-all">
-                    {link.original_url}
-                  </div>
-                  
-                  {/* Click Count Badge */}
-                  <div className="mt-4 flex items-center">
-                    <div className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-100 px-3 py-1 rounded-full flex items-center">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672L13.684 16.6m0 0-2.51 2.225.569-9.47 5.227 7.917-3.286-.672Zm-7.518-.267A8.25 8.25 0 1 1 20.25 10.5M8.288 14.212A5.25 5.25 0 1 1 17.25 10.5" />
-                      </svg>
-                      <span className="font-medium">{linkRefsClickCounts[link.id] || 0} clicks</span>
-                    </div>
-                  </div>
-                  
-                  {/* Action Buttons */}
-                  <div className="mt-3 flex flex-wrap gap-2">
+                </div>
+                {/* Show detailed content only when expanded */}
+                {expandedLinks[link.ref_id || link.id] && (
+                  <>
+                    {/* Preview Image */}
+                    {link.page_image && typeof link.page_image === 'string' && link.page_image.trim() !== '' && (
+                      <a 
+                        href={link.original_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="mt-3 inline-block rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 hover:opacity-90 transition-opacity"
+                        style={{ maxWidth: '200px' }}
+                      >
+                        <img 
+                          src={link.page_image} 
+                          alt="Preview" 
+                          className="w-full h-auto object-contain" 
+                          style={{ maxHeight: '120px' }}
+                          onError={(e) => {
+                            // Hide image if it fails to load
+                            const img = e.currentTarget as HTMLImageElement;
+                            const parent = img.parentElement;
+                            if (parent) parent.style.display = 'none';
+                          }}
+                        />
+                      </a>
+                    )}
+                    {/* Description */}
+                    {link.page_description && typeof link.page_description === 'string' && link.page_description.trim() !== '' && (
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
+                        {link.page_description}
+                      </p>
+                    )}
+                    {!(link._linkType === 'ref' && link.removed_by_creator) && (
+                      <a 
+                        href={link._linkType === 'ref' && link.utm_param ? `${origin}/${link.short_code}?utm_ref=${link.utm_param}` : `${origin}/${link.short_code}`}
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-sm text-orange-500 hover:text-orange-600"
+                      >
+                        {link._linkType === 'ref' && link.utm_param ? `${origin}/${link.short_code}?utm_ref=${link.utm_param}` : `${origin}/${link.short_code}`}
+                      </a>
+                    )}
+                  </>
+                )}
+                {/* Action Buttons and Click Count */}
+                <div className="mt-3 flex flex-wrap items-center justify-between">
+                  <div className="flex flex-wrap gap-2">
                     {/* Refresh Metadata Button */}
                     <button
                       onClick={() => handleRefreshLinkMetadata(link.id)}
@@ -928,7 +936,7 @@ export default function DashboardPage() {
                       {refreshingLinkIds.includes(link.id) ? (
                         <>
                           <svg className="animate-spin h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4}></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                           </svg>
                           Updating...
@@ -1000,14 +1008,14 @@ export default function DashboardPage() {
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 mr-1">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9-.346 9m4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                        </svg>
-                        Archive
-                      </button>
-                      <div className="absolute z-10 invisible group-hover:visible bg-gray-800 text-white text-xs rounded-lg py-2 px-3 left-0 bottom-full mb-2 w-64 shadow-lg">
-                        Archiving your link will make it stop working. You will retain any Qubits earned from this link. You can restore links at any time.
-                        <div className="absolute top-full left-2 -mt-1 border-4 border-transparent border-t-gray-800"></div>
+                          </svg>
+                          Archive
+                        </button>
+                        <div className="absolute z-10 invisible group-hover:visible bg-gray-800 text-white text-xs rounded-lg py-2 px-3 left-0 bottom-full mb-2 w-64 shadow-lg">
+                          Archiving your link will make it stop working. You will retain any Qubits earned from this link. You can restore links at any time.
+                          <div className="absolute top-full left-2 -mt-1 border-4 border-transparent border-t-gray-800"></div>
+                        </div>
                       </div>
-                    </div>
                     ) : ((activeTab === 'archived' || (activeTab === 'all' && (
                       (link._linkType === 'original' && link.deleted) ||
                       (link._linkType === 'ref' && link.removed_by_user)
@@ -1023,6 +1031,15 @@ export default function DashboardPage() {
                         Restore
                       </button>
                     ))}
+                  </div>
+                  
+                  {/* Click Count Badge */}
+                  <div className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-100 px-3 py-1 rounded-full flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <span className="font-medium">{linkRefsClickCounts[link.id] || 0} clicks</span>
                   </div>
                 </div>
               </div>

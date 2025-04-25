@@ -31,8 +31,17 @@ export default function NavMenu({ onProfileClick }: NavMenuProps) {
 
   return (
     <nav className="w-full flex justify-center items-center gap-8 mb-6">
-      <Link href="/dashboard" className="text-gray-700 dark:text-gray-200 hover:text-orange-500 dark:hover:text-orange-400 font-medium transition-colors">Dashboard</Link>
-      <Link href="/find-content" className="text-gray-700 dark:text-gray-200 hover:text-orange-500 dark:hover:text-orange-400 font-medium transition-colors">Find Content</Link>
+      <div className="hidden md:flex items-center space-x-4">
+        <Link href="/dashboard" className="text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
+          Dashboard
+        </Link>
+        <Link href="/find-content" className="text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
+          Find Content
+        </Link>
+        <Link href="/qubits" className="text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
+          Qubits
+        </Link>
+      </div>
       {onProfileClick ? (
         <button onClick={onProfileClick} className="btn-accent flex items-center">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-1 inline-block">

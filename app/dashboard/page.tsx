@@ -44,7 +44,8 @@ export default function DashboardPage() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [points, setPoints] = useState(0);
   const [totalClicks, setTotalClicks] = useState(0);
-  const [contentCreator, setContentCreator] = useState(false);
+  const [contentCreator, setContentCreator] = useState<boolean | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(true);
 
   const [origin, setOrigin] = useState('');
 
@@ -96,22 +97,32 @@ export default function DashboardPage() {
       if (!user) {
         router.push('/login');
         return;
-      } else setUser(user);
+      }
+      setUser(user);
       // Check content creator status
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('profiles')
         .select('content_creator')
         .eq('id', user.id)
         .single();
       if (!data?.content_creator) {
-        router.push('/dashboard-user');
+        router.replace('/dashboard-user');
+        return;
       }
+      setContentCreator(true);
+      setCheckingStatus(false);
     };
     getUser();
   }, [router]);
 
   // Logout function
   const handleLogout = async () => {
+
+  // If still checking, render nothing (or a spinner)
+  if (checkingStatus) {
+    return null; // Or a spinner
+  }
+
     await supabase.auth.signOut();
     router.push('/login');
   };
@@ -576,7 +587,7 @@ export default function DashboardPage() {
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${contentCreator ? 'bg-orange-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                   onClick={handleContentCreatorToggle}
                   type="button"
-                  aria-pressed={contentCreator}
+                  aria-pressed={contentCreator ?? undefined}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${contentCreator ? 'translate-x-6' : 'translate-x-1'}`}></span>
                 </button>
@@ -619,24 +630,27 @@ export default function DashboardPage() {
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700 relative">
         {/* Tab Navigation */}
-        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4 items-center gap-2">
+        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
           <button
-            className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'active' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            className={`py-2 px-4 font-medium flex items-center gap-2 ${activeTab === 'active' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300'}`}
             onClick={() => setActiveTab('active')}
           >
             Active Links
+            <span className="ml-1 inline-block min-w-[1.5em] px-1 py-0.5 rounded-full bg-orange-100 text-orange-600 text-xs font-semibold dark:bg-orange-900 dark:text-orange-200">{allLinks.filter(l => !l.deleted).length}</span>
           </button>
           <button
-            className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'archived' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            className={`py-2 px-4 font-medium flex items-center gap-2 ${activeTab === 'archived' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300'}`}
             onClick={() => setActiveTab('archived')}
           >
             Archived Links
+            <span className="ml-1 inline-block min-w-[1.5em] px-1 py-0.5 rounded-full bg-gray-200 text-gray-700 text-xs font-semibold dark:bg-gray-700 dark:text-gray-300">{allLinks.filter(l => l.deleted).length}</span>
           </button>
           <button
-            className={`py-2 px-4 -mb-px text-sm font-medium focus:outline-none ${activeTab === 'all' ? 'border-b-2 border-orange-500 text-orange-500' : 'border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'}`}
+            className={`py-2 px-4 font-medium flex items-center gap-2 ${activeTab === 'all' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300'}`}
             onClick={() => setActiveTab('all')}
           >
             All Links
+            <span className="ml-1 inline-block min-w-[1.5em] px-1 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold dark:bg-blue-900 dark:text-blue-200">{allLinks.length}</span>
           </button>
           <button
             className="ml-auto py-2 px-4 text-sm font-medium focus:outline-none border-b-2 border-transparent text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 flex items-center"

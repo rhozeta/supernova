@@ -183,28 +183,23 @@ export default function CreatorProfilePage() {
     <div className="max-w-3xl mx-auto py-12 px-4">
       <h1 className="text-3xl font-bold mb-2">{profile.username}</h1>
       {isFollowing && currentUserId && currentUserId !== id && (
-        <span className="inline-block mb-2 px-3 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200">Following</span>
-      )}
-      <div className="text-gray-500 dark:text-gray-400 mb-6">Content Creator</div>
-      {/* Follow/Unfollow button logic */}
-      {currentUserId && currentUserId !== id && (
-        isFollowing ? (
-          <button
+        <div className="relative group">
+          <button 
             onClick={handleUnfollow}
-            disabled={loadingFollow}
-            className="px-4 py-2 rounded-md font-semibold text-white bg-gray-400 hover:bg-gray-500"
+            className="px-3 py-1.5 text-sm rounded-md flex items-center bg-green-50 text-green-700 hover:bg-red-50 hover:text-red-700 dark:bg-green-900/30 dark:text-green-300 dark:hover:bg-red-900/30 dark:hover:text-red-300 transition-colors"
           >
-            {loadingFollow ? 'Unfollowing...' : 'Unfollow'}
+            <span className="group-hover:hidden">Following</span>
+            <span className="hidden group-hover:inline">Unfollow</span>
           </button>
-        ) : (
-          <button
-            onClick={handleFollow}
-            disabled={loadingFollow}
-            className="px-4 py-2 rounded-md font-semibold text-white bg-orange-500 hover:bg-orange-600"
-          >
-            {loadingFollow ? 'Following...' : 'Follow'}
-          </button>
-        )
+        </div>
+      )}
+      {!isFollowing && currentUserId && currentUserId !== id && (
+        <button
+          onClick={handleFollow}
+          className="px-3 py-1.5 text-sm rounded-md flex items-center bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-800/30"
+        >
+          Follow
+        </button>
       )}
       {unfollowError && (
         <div className="text-red-500 mt-2">{unfollowError}</div>

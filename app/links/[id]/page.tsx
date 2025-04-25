@@ -104,33 +104,28 @@ export default function LinkDetailsPage() {
   
   // Process data for chart
   const prepareChartData = () => {
-    if (!clickData.length) return null;
+    // Generate date range labels regardless of data
+    const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90;
+    const endDate = new Date();
+    const startDate = subDays(endDate, days - 1); // -1 to include today
     
-    // Group clicks by day
+    const allDays = [];
+    let currentDay = startOfDay(startDate);
+    while (currentDay <= endDate) {
+      allDays.push(format(currentDay, 'yyyy-MM-dd'));
+      currentDay = new Date(currentDay.setDate(currentDay.getDate() + 1));
+    }
+
+    // Group available clicks by day
     const clicksByDay = clickData.reduce((acc: Record<string, number>, click: any) => {
       const day = format(parseISO(click.clicked_at), 'yyyy-MM-dd');
       acc[day] = (acc[day] || 0) + 1;
       return acc;
     }, {});
-    
-    // Fill in missing days with zero clicks
-    const days = Object.keys(clicksByDay).sort();
-    if (days.length === 0) return null;
-    
-    const firstDay = parseISO(days[0]);
-    const lastDay = parseISO(days[days.length - 1]);
-    const allDays = [];
-    
-    let currentDay = startOfDay(firstDay);
-    while (currentDay <= lastDay) {
-      const dayStr = format(currentDay, 'yyyy-MM-dd');
-      allDays.push(dayStr);
-      currentDay = new Date(currentDay.setDate(currentDay.getDate() + 1));
-    }
-    
+
     const labels = allDays.map(day => format(parseISO(day), 'MMM d'));
     const data = allDays.map(day => clicksByDay[day] || 0);
-    
+
     return {
       labels,
       datasets: [
@@ -319,8 +314,19 @@ export default function LinkDetailsPage() {
             No click data available for this time period
           </div>
         ) : (
-          <div className="h-80">
-            {chartData && <Line data={chartData} options={chartOptions} />}
+          <div className="px-4">
+            <div className="h-80 w-full">
+              {chartData && (
+                <Line 
+                  data={chartData} 
+                  options={{
+                    ...chartOptions,
+                    responsive: true,
+                    maintainAspectRatio: false
+                  }} 
+                />
+              )}
+            </div>
           </div>
         )}
       </div>
