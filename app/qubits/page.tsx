@@ -10,6 +10,18 @@ interface CreatorBreakdown {
   qubits: number;
 }
 
+interface OriginalLink {
+  user_id: string;
+  user: {
+    username: string;
+  };
+}
+
+interface LinkRefWithCreator {
+  click_count: number;
+  original_link: OriginalLink;
+}
+
 export default function QubitsPage() {
   const [totalQubits, setTotalQubits] = useState(0);
   const [breakdown, setBreakdown] = useState<CreatorBreakdown[]>([]);
@@ -51,7 +63,7 @@ export default function QubitsPage() {
     // Get all link_refs for user with original creator info
     const { data, error } = await supabase
       .from('link_refs')
-      .select(`
+      .select<LinkRefWithCreator>(`
         click_count,
         original_link:original_link_id (
           user_id,
@@ -69,7 +81,7 @@ export default function QubitsPage() {
     const breakdownMap = new Map<string, CreatorBreakdown>();
     let total = 0;
 
-    data.forEach(ref => {
+    data.forEach((ref: LinkRefWithCreator) => {
       const creatorId = ref.original_link?.user_id;
       const username = ref.original_link?.user?.username || 'Unknown';
       const count = ref.click_count || 0;
