@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import NavMenu from '../components/NavMenu';
+import { User } from '@supabase/supabase-js';
 
 interface CreatorBreakdown {
   creator_id: string;
@@ -14,19 +15,20 @@ interface OriginalLink {
   user_id: string;
   user: {
     username: string;
+    id: string;
   };
 }
 
 interface LinkRefWithCreator {
   click_count: number;
-  original_link: OriginalLink;
+  original_link: OriginalLink | null;
 }
 
 export default function QubitsPage() {
   const [totalQubits, setTotalQubits] = useState(0);
   const [breakdown, setBreakdown] = useState<CreatorBreakdown[]>([]);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [contentCreator, setContentCreator] = useState(false);
   const router = useRouter();
 
@@ -60,37 +62,56 @@ export default function QubitsPage() {
   const fetchQubitsBreakdown = async (userId: string) => {
     setLoading(true);
     
-    // Get all link_refs for user with original creator info
-    const { data, error } = await supabase
+    // First get all link_refs for the user
+    const { data: refsData, error: refsError } = await supabase
       .from('link_refs')
-      .select<LinkRefWithCreator>(`
-        click_count,
-        original_link:original_link_id (
-          user_id,
-          user:user_id (username)
-        )
-      `)
+      .select('click_count, original_link_id')
       .eq('user_id', userId);
 
-    if (error || !data) {
+    if (refsError || !refsData) {
       setLoading(false);
       return;
     }
 
-    // Calculate breakdown by creator
+    // Then get the creator info for each original link
+    const linkIds = refsData.map(ref => ref.original_link_id);
+    const { data: linksData, error: linksError } = await supabase
+      .from('links')
+      .select('id, user_id, user:user_id (username, id)')
+      .in('id', linkIds);
+
+    if (linksError || !linksData) {
+      setLoading(false);
+      return;
+    }
+
+    // Combine the data
+    const combinedData = refsData.map(ref => {
+      const link = linksData.find(l => l.id === ref.original_link_id);
+      return {
+        click_count: ref.click_count || 0,
+        original_link: link ? {
+          user_id: link.user_id,
+          user: link.user[0] as { username: string; id: string }
+        } : null
+      };
+    });
+
+    // Calculate breakdown
     const breakdownMap = new Map<string, CreatorBreakdown>();
     let total = 0;
 
-    data.forEach((ref: LinkRefWithCreator) => {
+    combinedData.forEach(ref => {
       const creatorId = ref.original_link?.user_id;
       const username = ref.original_link?.user?.username || 'Unknown';
-      const count = ref.click_count || 0;
+      const count = ref.click_count;
       
       total += count;
 
       if (creatorId) {
-        if (breakdownMap.has(creatorId)) {
-          breakdownMap.get(creatorId)!.qubits += count;
+        const existing = breakdownMap.get(creatorId);
+        if (existing) {
+          existing.qubits += count;
         } else {
           breakdownMap.set(creatorId, {
             creator_id: creatorId,
