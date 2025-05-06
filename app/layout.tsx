@@ -30,14 +30,18 @@ export default function RootLayout({
         suppressHydrationWarning
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <div className="w-full flex justify-center items-center py-8">
-  <img src="/supernova-logo.svg" alt="Supernova Logo" className="h-12 w-12 mr-3" />
-  <span className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Supernova</span>
-</div>
-{/* NavMenu is now included in all pages except login and signup. */}
-<ThemeProvider>
-  {children}
-</ThemeProvider>
+        <ThemeProvider>
+          <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+            <NavMenu />
+            <main className="transition-all duration-300 md:pl-20">
+              <div className="w-full flex justify-center items-center py-8">
+                <img src="/supernova-logo.svg" alt="Supernova Logo" className="h-12 w-12 mr-3" />
+                <span className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Supernova</span>
+              </div>
+              {children}
+            </main>
+          </div>
+        </ThemeProvider>
       </body>
     </html>
   );

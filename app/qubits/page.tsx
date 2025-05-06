@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
-import NavMenu from '../components/NavMenu';
+
 import { User } from '@supabase/supabase-js';
 
 interface CreatorBreakdown {
@@ -62,42 +62,89 @@ export default function QubitsPage() {
   const fetchQubitsBreakdown = async (userId: string) => {
     setLoading(true);
     
-    // First get all link_refs for the user
+    // 1. Fetch all link_refs for the user
     const { data: refsData, error: refsError } = await supabase
       .from('link_refs')
       .select('click_count, original_link_id')
       .eq('user_id', userId);
 
-    if (refsError || !refsData) {
+    if (refsError || !refsData || refsData.length === 0) {
+      console.error('Error fetching refsData or no refs found:', refsError);
+      setTotalQubits(0);
+      setBreakdown([]);
       setLoading(false);
       return;
     }
 
-    // Then get the creator info for each original link
-    const linkIds = refsData.map(ref => ref.original_link_id);
+    // 2. Extract unique, non-null original_link_ids
+    const linkIds = [...new Set(refsData.map(ref => ref.original_link_id).filter(id => id != null))];
+    
+    if (linkIds.length === 0) {
+        console.log('No valid original_link_ids found in refs.');
+        setTotalQubits(0);
+        setBreakdown([]);
+        setLoading(false);
+        return; // Exit if no links to process
+    }
+
+    // 3. Fetch corresponding links (id and user_id only)
     const { data: linksData, error: linksError } = await supabase
       .from('links')
-      .select('id, user_id, user:user_id (username, id)')
+      .select('id, user_id')
       .in('id', linkIds);
 
     if (linksError || !linksData) {
+      console.error('Error fetching linksData:', linksError);
       setLoading(false);
       return;
     }
 
-    // Combine the data
+    // 4. Extract unique creator user_ids
+    const creatorIds = [...new Set(linksData.map(link => link.user_id).filter(id => id != null))];
+
+    if (creatorIds.length === 0) {
+        console.log('No valid creator IDs found in links.');
+        // We might still have refs, but can't attribute them to creators
+        // Calculate total based only on refsData click_count?
+        const totalFromRefs = refsData.reduce((sum, ref) => sum + (ref.click_count || 0), 0);
+        setTotalQubits(totalFromRefs);
+        setBreakdown([]); // No breakdown possible without creator info
+        setLoading(false);
+        return;
+    }
+
+    // 5. Fetch corresponding profiles (id and username only)
+    const { data: profilesData, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, username')
+      .in('id', creatorIds);
+
+    if (profilesError || !profilesData) {
+      console.error('Error fetching profilesData:', profilesError);
+      // Proceed without profile info? Or stop?
+      setLoading(false);
+      return; // Stop for now if profiles fail
+    }
+
+    // 6. Create lookup maps
+    const linksMap = new Map(linksData.map(link => [link.id, link]));
+    const profilesMap = new Map(profilesData.map(profile => [profile.id, profile]));
+
+    // 7. Manually construct combinedData
     const combinedData = refsData.map(ref => {
-      const link = linksData.find(l => l.id === ref.original_link_id);
-      return {
-        click_count: ref.click_count || 0,
-        original_link: link ? {
-          user_id: link.user_id,
-          user: link.user[0] as { username: string; id: string }
-        } : null
-      };
+        const link = ref.original_link_id ? linksMap.get(ref.original_link_id) : null;
+        const profile = link?.user_id ? profilesMap.get(link.user_id) : null;
+        
+        return {
+            click_count: ref.click_count || 0,
+            original_link: link ? {
+                user_id: link.user_id,
+                user: profile ? { username: profile.username, id: profile.id } : null
+            } : null
+        };
     });
 
-    // Calculate breakdown
+    // 8. Calculate breakdown (same logic as before)
     const breakdownMap = new Map<string, CreatorBreakdown>();
     let total = 0;
 
@@ -122,6 +169,7 @@ export default function QubitsPage() {
       }
     });
 
+    console.log('Final total qubits calculated (manual join):', total);
     setTotalQubits(total);
     setBreakdown(Array.from(breakdownMap.values()));
     setLoading(false);
@@ -131,7 +179,6 @@ export default function QubitsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <NavMenu />
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold mb-8">Qubits Breakdown</h1>
         

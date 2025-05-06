@@ -1,6 +1,7 @@
 "use client";
 import { useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { createProfile } from '../actions/createProfile';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -8,15 +9,36 @@ export default function SignupPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
+  const [usernameError, setUsernameError] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [contentCreator, setContentCreator] = useState(false);
+
+  const validateUsername = (value: string) => {
+    if (value.length < 3) {
+      return 'Username must be at least 3 characters';
+    }
+    if (value.length > 20) {
+      return 'Username must be less than 20 characters';
+    }
+    if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(value)) {
+      return 'Username must start with a letter and can only contain letters, numbers, underscores, and hyphens';
+    }
+    return '';  // no error
+  };
   const router = useRouter();
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    const usernameValidationError = validateUsername(username);
+    if (usernameValidationError) {
+      setUsernameError(usernameValidationError);
+      return;
+    }
     setLoading(true);
     setError('');
+    setUsernameError('');
+    // First create the user
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -29,16 +51,16 @@ export default function SignupPage() {
     // Insert into profiles table
     const user = data?.user;
     if (user) {
-      const { error: profileError } = await supabase.from('profiles').insert({
+      // Create the profile using server action
+      const result = await createProfile({
         id: user.id,
         username: username,
-        points: 0,
         content_creator: contentCreator,
-        created_at: new Date().toISOString(),
       });
-      if (profileError) {
+      
+      if (!result.success) {
         setLoading(false);
-        setError('Signup succeeded but failed to create profile: ' + profileError.message);
+        setError('Signup succeeded but failed to create profile: ' + (result.error || 'Unknown error'));
         return;
       }
     }
@@ -91,10 +113,22 @@ export default function SignupPage() {
               type="text"
               placeholder="Choose a username"
               value={username}
-              onChange={e => setUsername(e.target.value)}
+              onChange={e => {
+                const value = e.target.value;
+                setUsername(value);
+                setUsernameError(validateUsername(value));
+              }}
               className="w-full px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 dark:focus:ring-orange-400"
               required
+              pattern="^[a-zA-Z][a-zA-Z0-9_\-]*$"
+              minLength={3}
+              maxLength={20}
             />
+            {usernameError && (
+              <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                {usernameError}
+              </p>
+            )}
           </div>
           
           <div className="flex items-center mb-2">

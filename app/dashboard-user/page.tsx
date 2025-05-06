@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation';
 import { useThemeManager } from '../../lib/useTheme';
 import { fetchMetadata } from '../../lib/fetchMetadata';
 import { updateAllUserLinkMetadata, updateLinkMetadata } from '../../lib/updateLinkMetadata';
-import NavMenu from '../components/NavMenu';
+
 
 export default function DashboardPage() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -536,7 +536,6 @@ export default function DashboardPage() {
 
   return (
     <>
-      <NavMenu />
       <div className="dashboard-container max-w-5xl mx-auto py-6 sm:py-8 px-4 sm:px-8">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8 bg-gray-800 sm:mb-8  p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
           <div>
@@ -785,7 +784,13 @@ export default function DashboardPage() {
         </div>
         
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
-          <h2 className="text-xl font-bold">{activeTab === 'active' ? 'Your Links' : 'Archived Links'}</h2>
+          <h2 className="text-xl font-bold">
+            {activeTab === 'active'
+              ? 'Your Links'
+              : activeTab === 'archived'
+                ? 'Archived Links'
+                : 'All Links'}
+          </h2>
         </div>
         
         <div className="space-y-4">
@@ -867,7 +872,7 @@ export default function DashboardPage() {
                       <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                       {link.original_creator && link.original_creator.username && (
                           <Link
-                            href={`/creator/${link.original_creator.id}`}
+                            href={`/creator/${link.original_creator.username}`}
                             className="text-orange-600 dark:text-orange-400 hover:underline font-medium"
                           >
                             @{link.original_creator.username} 
@@ -926,35 +931,10 @@ export default function DashboardPage() {
                 {/* Action Buttons and Click Count */}
                 <div className="mt-3 flex flex-wrap items-center justify-between">
                   <div className="flex flex-wrap gap-2">
-                    {/* Refresh Metadata Button */}
-                    <button
-                      onClick={() => handleRefreshLinkMetadata(link.id)}
-                      disabled={refreshingLinkIds.includes(link.id)}
-                      className={`px-2 py-1 text-xs rounded-md flex items-center ${refreshingLinkIds.includes(link.id) ? 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400' : 'bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900 dark:text-blue-100 dark:hover:bg-blue-800'}`}
-                      aria-label="Refresh metadata for this link"
-                    >
-                      {refreshingLinkIds.includes(link.id) ? (
-                        <>
-                          <svg className="animate-spin h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4}></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          Updating...
-                        </>
-                      ) : (
-                        <>
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          </svg>
-                          Refresh Metadata
-                        </>
-                      )}
-                    </button>
-                    
-                    {/* Copy Button */}
+                    {/* Copy Button - Made more prominent */}
                     <div className="relative group">
                       <button
-                        className={`px-2 py-1 text-xs rounded-md flex items-center ${link._linkType === 'ref' && link.removed_by_creator ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+                        className={`px-2 py-1 text-xs rounded-md flex items-center ${link._linkType === 'ref' && link.removed_by_creator ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-700'}`}
                         onClick={async () => {
                           if (link._linkType === 'ref' && link.removed_by_creator) return;
                           const utmLink = origin && user?.id ? `${origin}/${link.short_code}?utm_ref=${user.id}` : `/${link.short_code}?utm_ref=${user?.id}`;
@@ -983,6 +963,31 @@ export default function DashboardPage() {
                       )}
                     </div>
                     
+                    {/* Refresh Metadata Button - Made less prominent */}
+                    <button
+                      onClick={() => handleRefreshLinkMetadata(link.id)}
+                      disabled={refreshingLinkIds.includes(link.id)}
+                      className={`px-2 py-1 text-xs rounded-md flex items-center ${refreshingLinkIds.includes(link.id) ? 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400' : 'bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'}`}
+                      aria-label="Refresh metadata for this link"
+                    >
+                      {refreshingLinkIds.includes(link.id) ? (
+                        <>
+                          <svg className="animate-spin h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4}></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Updating...
+                        </>
+                      ) : (
+                        <>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Refresh Metadata
+                        </>
+                      )}
+                    </button>
+
                     {/* Stats Button */}
                     <button
                       onClick={() => router.push(`/links/${link.id}`)}

@@ -170,7 +170,7 @@ export async function POST(req: NextRequest) {
       // Get the link details to find original_url and creator_id
       const { data: clickedLink, error: fetchLinkError } = await supabase
         .from('links')
-        .select('id, original_url, creator_id, user_id, short_code')
+        .select('id, original_url, creator_id, user_id, short_code, page_title, page_description, page_favicon')
         .eq('id', link_id)
         .single();
       if (!fetchLinkError && clickedLink) {
@@ -218,6 +218,38 @@ export async function POST(req: NextRequest) {
               .from('link_refs')
               .update({ click_count: (refRow.click_count || 0) + 1 })
               .eq('id', refRow.id);
+          } else {
+            // NOT FOUND: Insert a new link_refs row
+            console.log(`No existing link_ref found for original link ${clickedLink.id} or short code ${clickedLink.short_code}. Creating new one.`);
+            // Fetch necessary details from the original link if not already available in clickedLink
+            // For now, assume clickedLink has enough details or adjust as needed.
+            const { error: insertRefError } = await supabase
+              .from('link_refs')
+              .insert({
+                // Ensure all required columns are provided based on your link_refs schema
+                user_id: clickedLink.user_id, // The user who added this reference
+                original_link_id: clickedLink.id, // ID of the link being clicked (which is the 'original' in this context)
+                short_code: clickedLink.short_code,
+                original_url: clickedLink.original_url, // Provide the non-null original_url
+                // Copy other relevant fields if they exist in link_refs and clickedLink
+                page_title: clickedLink.page_title || null,
+                page_description: clickedLink.page_description || null,
+                page_favicon: clickedLink.page_favicon || null,
+                // Initialize counts or other fields
+                click_count: 1, // Start click count at 1 for the new ref
+                save_count: 0, // Assuming save_count exists and starts at 0
+                // Ensure creator_id is set correctly if required by link_refs schema
+                creator_id: clickedLink.creator_id // The creator of the original link
+              });
+
+            if (insertRefError) {
+              console.error('Error inserting new link_ref:', insertRefError);
+              // If this fails, the overall click might still be considered successful
+              // depending on requirements, but log the error.
+              // return NextResponse.json({ error: 'Failed to create link reference.' }, { status: 500 });
+            } else {
+               console.log('Successfully created new link_ref.');
+            }
           }
         }
       }
