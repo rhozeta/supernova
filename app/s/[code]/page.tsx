@@ -1,9 +1,7 @@
 import { supabase } from '@/lib/supabaseClient';
 import { redirect } from 'next/navigation';
-import { NextRequest } from 'next/server';
-import { Metadata } from 'next';
 
-interface Props {
+interface PageProps {
   params: { code: string };
   searchParams: { [key: string]: string | string[] | undefined };
 }
@@ -35,10 +33,9 @@ async function recordClick(linkId: string) {
 // Note: The second argument 'request' is implicitly passed by Next.js App Router
 // when the page is dynamically rendered.
 export default async function ShortLinkPage(
-  props: Props,
-  context: { params: { code: string } }
+  { params, searchParams }: PageProps
 ) {
-  const { code } = props.params;
+  const { code } = params;
   console.log(`Handling short code: ${code}`);
 
   if (!code) {
