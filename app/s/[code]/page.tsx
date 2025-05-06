@@ -1,29 +1,27 @@
 import { supabase } from '@/lib/supabaseClient';
 import { redirect } from 'next/navigation';
 import { NextRequest } from 'next/server';
+import { Metadata } from 'next';
 
-type Props = {
+interface Props {
   params: { code: string };
-};
+  searchParams: { [key: string]: string | string[] | undefined };
+}
 
 // Ensure this page is dynamically rendered
 export const dynamic = 'force-dynamic';
 
 // Helper function to call the click API (fire-and-forget)
-async function recordClick(linkId: string, request: NextRequest) {
+async function recordClick(linkId: string) {
   try {
-    // Construct the full URL for the API endpoint
-    const apiUrl = `${request.nextUrl.origin}/api/click`;
+    // Construct the full URL for the API endpoint using relative path
+    const apiUrl = `/api/click`;
     console.log(`Recording click for link ${linkId} via API: ${apiUrl}`);
 
-    // We don't necessarily need user_id or captcha here for a simple redirect click log
-    // but include basics like IP and User-Agent if needed by the API
     await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': request.headers.get('user-agent') || 'unknown',
-        'X-Forwarded-For': request.ip || request.headers.get('x-forwarded-for') || 'unknown',
       },
       body: JSON.stringify({ link_id: linkId }),
     });
@@ -36,8 +34,11 @@ async function recordClick(linkId: string, request: NextRequest) {
 
 // Note: The second argument 'request' is implicitly passed by Next.js App Router
 // when the page is dynamically rendered.
-export default async function ShortLinkPage({ params }: Props, request: NextRequest) {
-  const { code } = params;
+export default async function ShortLinkPage(
+  props: Props,
+  context: { params: { code: string } }
+) {
+  const { code } = props.params;
   console.log(`Handling short code: ${code}`);
 
   if (!code) {
@@ -62,8 +63,7 @@ export default async function ShortLinkPage({ params }: Props, request: NextRequ
       console.log(`Found link ${link.id}, redirecting to: ${link.original_url}`);
       
       // Record the click asynchronously (don't await)
-      // Pass the implicit 'request' object to the helper
-      recordClick(link.id, request);
+      recordClick(link.id);
 
       // Perform the redirect
       redirect(link.original_url);
