@@ -3,8 +3,7 @@ import { redirect } from 'next/navigation';
 
 
 
-// Ensure this page is dynamically rendered
-export const dynamic = 'force-dynamic';
+
 
 // Helper function to call the click API (fire-and-forget)
 async function recordClick(linkId: string) {
