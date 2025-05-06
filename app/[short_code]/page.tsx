@@ -44,7 +44,7 @@ export default async function ShortCodePage({ params }: { params: Params }) {
 
   // Server-side: try to auto-record click and redirect if not suspicious/no captcha required
   const apiRes = await fetch(
-    `${process.env.BASE_URL || 'http://localhost:3000'}/api/click`,
+    '/api/click', // Use relative path for internal API calls
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
