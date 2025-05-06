@@ -4,8 +4,6 @@ import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import { toast, Toaster } from 'react-hot-toast';
 
-
-
 export default function ProfilePage() {
   const [user, setUser] = useState<any>(null);
   const [points, setPoints] = useState<number>(0);
@@ -13,6 +11,7 @@ export default function ProfilePage() {
   const [uploading, setUploading] = useState(false);
   const [username, setUsername] = useState('');
   const [usernameError, setUsernameError] = useState('');
+  const [origin, setOrigin] = useState('');
 
   const router = useRouter();
 
@@ -45,6 +44,10 @@ export default function ProfilePage() {
     if (user) fetchPoints();
     // eslint-disable-next-line
   }, [user]);
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
 
   const fetchPoints = async () => {
     const { data, error } = await supabase
@@ -201,7 +204,7 @@ export default function ProfilePage() {
               <p className="mt-1 text-sm text-red-500">{usernameError}</p>
             )}
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              This will be your public profile URL: {window.location.origin}/creator/{username || '[username]'}
+              This will be your public profile URL: {origin ? `${origin}/creator/${username || '[username]'}` : 'Loading URL...'}
             </p>
           </div>
 
