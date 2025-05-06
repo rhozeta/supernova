@@ -452,7 +452,7 @@ export default function FindContentPage() {
                         {/* Card Actions */}
                         <div className="p-4 pt-0 flex items-center justify-between gap-2 mt-auto">
                           <a 
-                            href={`/s/${link.short_code}`}
+                            href={`${link.short_code}`}
                             target="_blank" 
                             rel="noopener noreferrer" 
                             className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
@@ -533,7 +533,7 @@ export default function FindContentPage() {
                               {/* Group Buttons below title/favicon */}
                               <div className="flex items-center gap-2">
                                 <a
-                                  href={`/s/${link.short_code}`}
+                                  href={`${link.short_code}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-xs px-2 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-800/50"
