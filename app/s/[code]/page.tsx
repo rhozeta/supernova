@@ -1,10 +1,7 @@
 import { supabase } from '@/lib/supabaseClient';
 import { redirect } from 'next/navigation';
 
-interface PageProps {
-  params: { code: string };
-  searchParams: { [key: string]: string | string[] | undefined };
-}
+
 
 // Ensure this page is dynamically rendered
 export const dynamic = 'force-dynamic';
@@ -33,7 +30,7 @@ async function recordClick(linkId: string) {
 // Note: The second argument 'request' is implicitly passed by Next.js App Router
 // when the page is dynamically rendered.
 export default async function ShortLinkPage(
-  { params, searchParams }: PageProps
+  { params }: { params: { code: string } }
 ) {
   const { code } = params;
   console.log(`Handling short code: ${code}`);
